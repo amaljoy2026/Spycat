@@ -2,21 +2,27 @@
 #ifndef __SPYSCOPE_DATASOURCE_HPP__
 #define __SPYSCOPE_DATASOURCE_HPP__
 
+#include <wx/wx.h>
 #include <string>
 #include <vector>
 #include <optional>
 #include <unordered_map>
 #include "../spymap/spymap.hpp"
 
+// Forward-declare SpyScope (global namespace) — full definition in app.hpp,
+// included only in datasource.cpp to avoid a circular header dependency.
+class SpyScope;
+
 namespace spycat
 {
 
-class DataSource
+class DataSource : public wxEvtHandler
 {
 public:
-    explicit DataSource(Spymap* spymap);
+    explicit DataSource(SpyScope& app);
 
-    // Call from MainFrame timer — rebuilds cache from a fresh snapshot()
+    // Rebuild cache from a fresh Spymap snapshot.
+    // Also called internally by the data timer — safe to call externally too.
     void Poll();
 
     // Per-key lookup — O(1). Returns nullopt if key not in last snapshot.
@@ -33,7 +39,10 @@ public:
     bool IsReady() const { return ready_; }
 
 private:
-    Spymap                                         *spymap_;
+    void OnTimer(wxTimerEvent&);
+
+    SpyScope&                                      app_;
+    wxTimer                                        timer_;
     std::unordered_map<std::string, Spymap::Entry> cache_;
     bool                                           ready_ = false;
 };

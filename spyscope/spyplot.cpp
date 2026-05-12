@@ -59,8 +59,6 @@ void SpyPlot::OnDataTimer(wxTimerEvent&)
 {
     if (!source_) return;
 
-    source_->Poll();
-
     auto entry = source_->Get(key_);
     if (!entry) return;
 

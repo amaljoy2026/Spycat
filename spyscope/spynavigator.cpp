@@ -1,5 +1,7 @@
 // spynavigator.cpp
 #include "spynavigator.hpp"
+#include "app.hpp"
+#include "datasource.hpp"
 #include <wx/sizer.h>
 #include <wx/imaglist.h>
 #include <wx/dnd.h>
@@ -15,11 +17,14 @@ wxEND_EVENT_TABLE()
 
 // ── Construction ──────────────────────────────────────────────────────────────
 
-SpyNavigator::SpyNavigator(wxWindow* parent, DataSource* source, wxWindowID id)
+SpyNavigator::SpyNavigator(wxWindow* parent, SpyScope& app, wxWindowID id)
     : wxPanel(parent, id)
-    , source_(source)
+    , source_(app.GetDataSource())
+    , data_timer_(this)
 {
-    font_mono_ = wxFont(12, wxFONTFAMILY_TELETYPE,
+    Bind(wxEVT_TIMER, &SpyNavigator::OnDataTimer, this, data_timer_.GetId());
+    data_timer_.Start(17);   // ~60 Hz
+    font_mono_ = wxFont(16, wxFONTFAMILY_TELETYPE,
                         wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
 
     SetBackgroundColour(NAV_BG);
@@ -79,7 +84,12 @@ SpyNavigator::SpyNavigator(wxWindow* parent, DataSource* source, wxWindowID id)
     SetSizer(sizer);
 }
 
-// ── Poll ──────────────────────────────────────────────────────────────────────
+// ── Poll / data timer ─────────────────────────────────────────────────────────
+
+void SpyNavigator::OnDataTimer(wxTimerEvent&)
+{
+    Poll();
+}
 
 void SpyNavigator::Poll()
 {

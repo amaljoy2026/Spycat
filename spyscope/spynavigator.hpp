@@ -10,10 +10,15 @@
 #include <unordered_set>
 #include <functional>
 
-#include "datasource.hpp"
+// Forward-declare SpyScope (global namespace) — full definition in app.hpp,
+// included only in spynavigator.cpp to avoid a circular header dependency.
+class SpyScope;
 
 namespace spycat
 {
+
+// Forward-declare DataSource — full definition included in spynavigator.cpp
+class DataSource;
 
 static const wxColour NAV_BG        { 0xFF, 0xFF, 0xFF };
 static const wxColour NAV_PRIMARY   { 0x00, 0x66, 0x00 };
@@ -46,9 +51,8 @@ private:
 class SpyNavigator : public wxPanel
 {
 public:
-    SpyNavigator(wxWindow* parent, DataSource* source, wxWindowID id = wxID_ANY);
+    SpyNavigator(wxWindow* parent, SpyScope& app, wxWindowID id = wxID_ANY);
 
-    // Call from MainFrame 60Hz timer
     void Poll();
 
     // Currently selected full key — empty if a namespace node is selected
@@ -66,9 +70,11 @@ private:
     void OnSelChanged(wxTreeEvent&);
     void OnBeginDrag(wxTreeEvent&);
     void OnItemExpanding(wxTreeEvent& e) { e.Skip(); }
+    void OnDataTimer(wxTimerEvent&);
 
     wxTreeCtrl*   tree_;
     DataSource*   source_;
+    wxTimer       data_timer_;
 
     // Hidden root — wxTR_HIDE_ROOT makes its children appear top-level
     wxTreeItemId  root_;

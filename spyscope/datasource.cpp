@@ -1,21 +1,31 @@
 // datasource.cpp
 #include "datasource.hpp"
+#include "app.hpp"      // full SpyScope definition — needed for GetSpymap()
 #include <algorithm>
 
 namespace spycat
 {
 
-DataSource::DataSource(Spymap* spymap)
-    : spymap_(spymap)
+DataSource::DataSource(SpyScope& app)
+    : app_(app)
+    , timer_(this)
 {
+    Bind(wxEVT_TIMER, &DataSource::OnTimer, this);
+    timer_.Start(17);   // ~60 Hz
+}
+
+void DataSource::OnTimer(wxTimerEvent&)
+{
+    Poll();
 }
 
 void DataSource::Poll()
 {
-    if (!spymap_) return;
-
+    Spymap* spymap = app_.GetSpymap();
+    if (!spymap) return;
+    
     // Full snapshot from shared memory — one read, fans out to all consumers.
-    std::vector<Spymap::Entry> entries = spymap_->snapshot();
+    std::vector<Spymap::Entry> entries = spymap->snapshot();
 
     // Rebuild cache — last-write-wins on key collision (shouldn't occur in
     // a well-formed Spymap, but defensive to handle it).
