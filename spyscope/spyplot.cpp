@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <sstream>
 #include <iomanip>
+#include <variant>
 
 namespace spycat
 {
@@ -18,29 +19,59 @@ const wxColour SpyPlot::COL_TEXT  { 0x00, 0x66, 0x00 };
 const wxColour SpyPlot::COL_VALUE { 0xFF, 0xFF, 0xFF };
 
 // ── Construction ──────────────────────────────────────────────────────────────
-SpyPlot::SpyPlot(wxWindow* parent, const wxString& key,
+SpyPlot::SpyPlot(wxWindow* parent, DataSource* source, const std::string& key,
                  wxWindowID id, const wxPoint& pos,
                  const wxSize& size, long style)
     : wxPanel(parent, id, pos, size, style)
     , key_(key)
-    , timer_(this)
+    , source_(source)
+    , paint_timer_(this)
+    , data_timer_(this)
 {
     SetBackgroundStyle(wxBG_STYLE_PAINT);   // required for wxAutoBufferedPaintDC
     SetBackgroundColour(COL_BG);
     SetMinSize({ 200, 100 });
 
-    Bind(wxEVT_PAINT,  &SpyPlot::OnPaint, this);
-    Bind(wxEVT_SIZE,   &SpyPlot::OnSize,  this);
-    Bind(wxEVT_TIMER,  &SpyPlot::OnTimer, this);
+    Bind(wxEVT_PAINT, &SpyPlot::OnPaint,      this);
+    Bind(wxEVT_SIZE,  &SpyPlot::OnSize,        this);
+    Bind(wxEVT_TIMER, &SpyPlot::OnPaintTimer,  this, paint_timer_.GetId());
+    Bind(wxEVT_TIMER, &SpyPlot::OnDataTimer,   this, data_timer_.GetId());
 
-    timer_.Start(16);   // ~60 Hz refresh
+    paint_timer_.Start(16);   // ~60 Hz repaint
+    data_timer_.Start(16);    // ~60 Hz data ingestion
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
+void SpyPlot::SetKey(const std::string& key)
+{
+    key_ = key;
+    data_.clear();
+}
+
 void SpyPlot::PushSample(double value)
 {
     double t = std::chrono::duration<double>(Clock::now() - start_).count();
     data_.push_back({ t, value });
+}
+
+// ── Data timer ────────────────────────────────────────────────────────────────
+void SpyPlot::OnDataTimer(wxTimerEvent&)
+{
+    if (!source_) return;
+
+    source_->Poll();
+
+    auto entry = source_->Get(key_);
+    if (!entry) return;
+
+    double value = std::visit([](auto&& v) -> double {
+        using T = std::decay_t<decltype(v)>;
+        if constexpr (std::is_arithmetic_v<T>)
+            return static_cast<double>(v);
+        return 0.0;   // string / raw blob — not plottable
+    }, entry->value);
+
+    PushSample(value);
 }
 
 // ── Coordinate transforms ─────────────────────────────────────────────────────
@@ -180,7 +211,7 @@ void SpyPlot::DrawAxesLabels(wxDC& dc)
     // Key name top-left
     dc.SetTextForeground(COL_TRACE);
     dc.SetFont(wxFont(12, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
-    dc.DrawText(key_, MARGIN_L + 4, MARGIN_T + 2);
+    dc.DrawText(wxString::FromUTF8(key_), MARGIN_L + 4, MARGIN_T + 2);
 }
 
 void SpyPlot::DrawTrace(wxGraphicsContext* gc)

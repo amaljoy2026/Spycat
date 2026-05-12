@@ -5,7 +5,10 @@
 #include <wx/wx.h>
 #include <wx/graphics.h>
 #include <chrono>
+#include <string>
 #include <boost/circular_buffer.hpp>
+
+#include "datasource.hpp"
 
 namespace spycat
 {
@@ -19,13 +22,17 @@ class SpyPlot : public wxPanel
 {
 public:
     SpyPlot(wxWindow* parent,
-            const wxString& key   = "signal",
-            wxWindowID id         = wxID_ANY,
-            const wxPoint& pos    = wxDefaultPosition,
-            const wxSize& size    = wxDefaultSize,
-            long style            = wxTAB_TRAVERSAL | wxCLIP_CHILDREN);
+            DataSource*        source,
+            const std::string& key    = "signal",
+            wxWindowID id             = wxID_ANY,
+            const wxPoint& pos        = wxDefaultPosition,
+            const wxSize& size        = wxDefaultSize,
+            long style                = wxTAB_TRAVERSAL | wxCLIP_CHILDREN);
 
-    // Push a new value from Spymap (call from timer)
+    // Change which key is plotted at runtime
+    void SetKey(const std::string& key);
+
+    // Push a new value directly (still usable externally)
     void PushSample(double value);
 
     // Configuration
@@ -53,10 +60,12 @@ private:
     // Events
     void OnPaint(wxPaintEvent&);
     void OnSize(wxSizeEvent& e) { Refresh(); e.Skip(); }
-    void OnTimer(wxTimerEvent&) { Refresh(); }
+    void OnPaintTimer(wxTimerEvent&) { Refresh(); }
+    void OnDataTimer(wxTimerEvent&);
 
     // Identity
-    wxString key_;
+    std::string key_;
+    DataSource* source_;
 
     // Ring buffer — 10 min at 60 Hz = 36000 samples, cap at that
     boost::circular_buffer<Sample> data_ { 36000 };
@@ -85,7 +94,8 @@ private:
     static const wxColour COL_TEXT;
     static const wxColour COL_VALUE;
 
-    wxTimer timer_;
+    wxTimer paint_timer_;
+    wxTimer data_timer_;
 };
 
 } // namespace spycat
