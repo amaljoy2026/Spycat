@@ -19,9 +19,10 @@ static int64_t now_ns()
 
 // ── Constructor ───────────────────────────────────────────────────────────────
 
-Spymap::Spymap(const std::string& name, size_t max_size)
+Spymap::Spymap(const std::string& name, uint32_t source_id, size_t max_size)
     : name_(name)
     , max_size_(max_size)
+    , source_id_(source_id)
 {
     bool created = false;
 
@@ -111,7 +112,7 @@ Header* Spymap::find(const char* key) const
 // timestamp: nanoseconds since Unix epoch (from sender's clock for network packets).
 // Pass -1 (default) to stamp with the local clock at time of write.
 void Spymap::set(const char* key, const void* value, size_t size, TypeTag type,
-    uint32_t source_node, int64_t timestamp)
+    int64_t timestamp)
 {
     // ══ Fast path — key exists ════════════════════════════════════════════
     // Shared thread lock + sharable dict lock — structure is stable.
@@ -150,7 +151,7 @@ void Spymap::set(const char* key, const void* value, size_t size, TypeTag type,
                 h->value_size   = size;
                 h->type_tag     = type;
                 h->timestamp_ns = (timestamp >= 0) ? timestamp : now_ns();
-                h->source_node  = source_node;
+                h->source_node  = source_id_;
             }
             return;
         }
@@ -173,7 +174,7 @@ void Spymap::set(const char* key, const void* value, size_t size, TypeTag type,
             header_cache_[key] = h;
             up_lock.unlock();
             thread_lock.unlock();
-            set(key, value, size, type, source_node, timestamp);    // tail recurse — at most once
+            set(key, value, size, type, timestamp);    // tail recurse — at most once
             return;
         }
 
@@ -234,7 +235,7 @@ void Spymap::set(const char* key, const void* value, size_t size, TypeTag type,
         new_h->data_offset  = value_offset;
         new_h->value_size   = size;             // actual written bytes
         new_h->timestamp_ns = (timestamp >= 0) ? timestamp : now_ns();
-        new_h->source_node  = source_node;
+        new_h->source_node  = source_id_;
 
         // ── 3. Commit both cursors atomically under exclusive lock ─────────
         //
@@ -347,30 +348,30 @@ std::vector<Spymap::Entry> Spymap::snapshot() const
 
 // ── Typed set overloads ───────────────────────────────────────────────────────
 
-void Spymap::set(const std::string& key, const void* value, size_t size, TypeTag type, 
-    uint32_t source_node, int64_t timestamp)
+void Spymap::set(const std::string& key, const void* value, size_t size,
+    TypeTag type, int64_t timestamp)
 {
-    set(key.c_str(), value, size, type, source_node, timestamp);
+    set(key.c_str(), value, size, type, timestamp);
 }
 
-void Spymap::set(const std::string& key, double value, uint32_t source_node, int64_t timestamp)
+void Spymap::set(const std::string& key, double value, int64_t timestamp)
 {
-    set(key.c_str(), &value, sizeof(double), TypeTag::Double, source_node, timestamp);
+    set(key.c_str(), &value, sizeof(double), TypeTag::Double, timestamp);
 }
 
-void Spymap::set(const std::string& key, int64_t value, uint32_t source_node, int64_t timestamp)
+void Spymap::set(const std::string& key, int64_t value, int64_t timestamp)
 {
-    set(key.c_str(), &value, sizeof(int64_t), TypeTag::Int64, source_node, timestamp);
+    set(key.c_str(), &value, sizeof(int64_t), TypeTag::Int64, timestamp);
 }
 
-void Spymap::set(const std::string& key, bool value, uint32_t source_node, int64_t timestamp)
+void Spymap::set(const std::string& key, bool value, int64_t timestamp)
 {
-    set(key.c_str(), &value, sizeof(bool), TypeTag::Bool, source_node, timestamp);
+    set(key.c_str(), &value, sizeof(bool), TypeTag::Bool, timestamp);
 }
 
-void Spymap::set(const std::string& key, const std::string& value, uint32_t source_node, int64_t timestamp)
+void Spymap::set(const std::string& key, const std::string& value, int64_t timestamp)
 {
-    set(key.c_str(), value.data(), value.size() + 1, TypeTag::String, source_node, timestamp);
+    set(key.c_str(), value.data(), value.size() + 1, TypeTag::String, timestamp);
 }
 
 // ── Typed get overloads ───────────────────────────────────────────────────────

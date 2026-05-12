@@ -85,23 +85,25 @@ class Spymap
 {
 public:
     // Open or create a named shared memory segment.
+    // source_id is stamped on every write made through this instance.
     // max_size is only honoured by the creating process — openers read the
     // true value from DictHeader. Default: 256 MB virtual (pages faulted lazily).
     explicit Spymap(const std::string& name,
-                    size_t max_size = 256ULL * 1024 * 1024);
+                    uint32_t source_id = 0,
+                    size_t   max_size  = 256ULL * 1024 * 1024);
     ~Spymap();
 
     // ── Write ─────────────────────────────────────────────────────────────
 
-    void set(const char* key, const void* value, size_t size, TypeTag type, 
-        uint32_t source_node=0, int64_t timestamp=0);
+    void set(const char* key, const void* value, size_t size, TypeTag type,
+             int64_t timestamp=0);
     void set(const std::string& key, const void* value, size_t size,
-             TypeTag type = TypeTag::Raw, uint32_t source_node=0, int64_t timestamp=-1);
+             TypeTag type = TypeTag::Raw, int64_t timestamp=-1);
 
-    void set(const std::string& key, double             value, uint32_t source_node=0, int64_t timestamp=-1);
-    void set(const std::string& key, int64_t            value, uint32_t source_node=0, int64_t timestamp=-1);
-    void set(const std::string& key, bool               value, uint32_t source_node=0, int64_t timestamp=-1);
-    void set(const std::string& key, const std::string& value, uint32_t source_node=0, int64_t timestamp=-1);
+    void set(const std::string& key, double             value, int64_t timestamp=-1);
+    void set(const std::string& key, int64_t            value, int64_t timestamp=-1);
+    void set(const std::string& key, bool               value, int64_t timestamp=-1);
+    void set(const std::string& key, const std::string& value, int64_t timestamp=-1);
 
     // ── Read ──────────────────────────────────────────────────────────────
 
@@ -195,6 +197,7 @@ private:
 
     std::string name_;
     size_t      max_size_;
+    uint32_t    source_id_;
 
     mutable std::shared_mutex thread_mutex_;  // thread-level, always acquired first
 
