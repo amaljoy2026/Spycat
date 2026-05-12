@@ -147,10 +147,16 @@ void Spymap::set(const char* key, const void* value, size_t size, TypeTag type,
                 bip::scoped_lock<bip::interprocess_sharable_mutex>
                     val_lock(h->value_mutex);           // exclusive on value bytes
 
+                // If an explicit timestamp was supplied, reject stale writes.
+                // Comparison is done inside the lock to avoid a TOCTOU race.
+                const int64_t new_ts = (timestamp >= 0) ? timestamp : now_ns();
+                if (timestamp >= 0 && new_ts <= h->timestamp_ns)
+                    return;
+
                 std::memcpy(value_ptr(h), value, size);
                 h->value_size   = size;
                 h->type_tag     = type;
-                h->timestamp_ns = (timestamp >= 0) ? timestamp : now_ns();
+                h->timestamp_ns = new_ts;
                 h->source_node  = source_id_;
             }
             return;
