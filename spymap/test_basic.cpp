@@ -136,7 +136,6 @@ int main()
     test_typed();
     test_string_stress();
     test_multithreaded();
-
     std::cout << "\nAll tests done.\n";
     return 0;
 }
