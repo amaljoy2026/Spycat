@@ -339,8 +339,14 @@ std::vector<Spymap::Entry> Spymap::snapshot() const
                 case TypeTag::Double:
                     e.value.emplace<double>(*reinterpret_cast<const double*>(vptr));
                     break;
+                case TypeTag::Float:
+                    e.value.emplace<float>(*reinterpret_cast<const float*>(vptr));
+                    break;
                 case TypeTag::Int64:
                     e.value.emplace<int64_t>(*reinterpret_cast<const int64_t*>(vptr));
+                    break;
+                case TypeTag::Int32:
+                    e.value.emplace<int32_t>(*reinterpret_cast<const int32_t*>(vptr));
                     break;
                 case TypeTag::Bool:
                     e.value.emplace<bool>(*reinterpret_cast<const bool*>(vptr));
@@ -375,9 +381,19 @@ void Spymap::set(const std::string& key, double value, int override, int64_t tim
     set(key.c_str(), &value, sizeof(double), TypeTag::Double, override, timestamp);
 }
 
+void Spymap::set(const std::string& key, float value, int override, int64_t timestamp)
+{
+    set(key.c_str(), &value, sizeof(float), TypeTag::Float, override, timestamp);
+}
+
 void Spymap::set(const std::string& key, int64_t value, int override, int64_t timestamp)
 {
     set(key.c_str(), &value, sizeof(int64_t), TypeTag::Int64, override, timestamp);
+}
+
+void Spymap::set(const std::string& key, int32_t value, int override, int64_t timestamp)
+{
+    set(key.c_str(), &value, sizeof(int32_t), TypeTag::Int32, override, timestamp);
 }
 
 void Spymap::set(const std::string& key, bool value, int override, int64_t timestamp)
@@ -404,10 +420,24 @@ double Spymap::get_double(const std::string& key, double default_val)
     return v;
 }
 
+float Spymap::get_float(const std::string& key, float default_val)
+{
+    float v = default_val;
+    get(key.c_str(), &v, sizeof(float));
+    return v;
+}
+
 int64_t Spymap::get_int64(const std::string& key, int64_t default_val)
 {
     int64_t v = default_val;
     get(key.c_str(), &v, sizeof(int64_t));
+    return v;
+}
+
+int32_t Spymap::get_int32(const std::string& key, int32_t default_val)
+{
+    int32_t v = default_val;
+    get(key.c_str(), &v, sizeof(int32_t));
     return v;
 }
 

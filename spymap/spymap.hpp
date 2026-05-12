@@ -101,7 +101,9 @@ public:
              TypeTag type = TypeTag::Raw, int override=0, int64_t timestamp=-1);
 
     void set(const std::string& key, double             value, int override=0, int64_t timestamp=-1);
+    void set(const std::string& key, float              value, int override=0, int64_t timestamp=-1);
     void set(const std::string& key, int64_t            value, int override=0, int64_t timestamp=-1);
+    void set(const std::string& key, int32_t            value, int override=0, int64_t timestamp=-1);
     void set(const std::string& key, bool               value, int override=0, int64_t timestamp=-1);
     void set(const std::string& key, const std::string& value, int override=0, int64_t timestamp=-1);
 
@@ -111,7 +113,9 @@ public:
     bool get(const std::string& key, void* buffer, size_t buffer_size);
 
     double      get_double(const std::string& key, double             default_val = 0.0);
+    float       get_float (const std::string& key, float              default_val = 0.0f);
     int64_t     get_int64 (const std::string& key, int64_t            default_val = 0);
+    int32_t     get_int32 (const std::string& key, int32_t            default_val = 0);
     bool        get_bool  (const std::string& key, bool               default_val = false);
     std::string get_string(const std::string& key, const std::string& default_val = "");
 
@@ -119,7 +123,7 @@ public:
 
     struct Entry {
         std::string key;
-        std::variant<double, int64_t, bool,
+        std::variant<double, float, int64_t, int32_t, bool,
                      std::string, std::vector<uint8_t>> value;
         TypeTag  type_tag;
         int64_t  timestamp_ns;
