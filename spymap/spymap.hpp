@@ -96,12 +96,12 @@ public:
     void set(const char* key, const void* value, size_t size, TypeTag type, 
         uint32_t source_node=0, int64_t timestamp=0);
     void set(const std::string& key, const void* value, size_t size,
-             TypeTag type = TypeTag::Raw, uint32_t source_node=0, int64_t timestamp=0);
+             TypeTag type = TypeTag::Raw, uint32_t source_node=0, int64_t timestamp=-1);
 
-    void set(const std::string& key, double             value, uint32_t source_node=0, int64_t timestamp=0);
-    void set(const std::string& key, int64_t            value, uint32_t source_node=0, int64_t timestamp=0);
-    void set(const std::string& key, bool               value, uint32_t source_node=0, int64_t timestamp=0);
-    void set(const std::string& key, const std::string& value, uint32_t source_node=0, int64_t timestamp=0);
+    void set(const std::string& key, double             value, uint32_t source_node=0, int64_t timestamp=-1);
+    void set(const std::string& key, int64_t            value, uint32_t source_node=0, int64_t timestamp=-1);
+    void set(const std::string& key, bool               value, uint32_t source_node=0, int64_t timestamp=-1);
+    void set(const std::string& key, const std::string& value, uint32_t source_node=0, int64_t timestamp=-1);
 
     // ── Read ──────────────────────────────────────────────────────────────
 

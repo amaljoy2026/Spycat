@@ -108,7 +108,9 @@ Header* Spymap::find(const char* key) const
 
 // ── set — core ────────────────────────────────────────────────────────────────
 
-void Spymap::set(const char* key, const void* value, size_t size, TypeTag type, 
+// timestamp: nanoseconds since Unix epoch (from sender's clock for network packets).
+// Pass -1 (default) to stamp with the local clock at time of write.
+void Spymap::set(const char* key, const void* value, size_t size, TypeTag type,
     uint32_t source_node, int64_t timestamp)
 {
     // ══ Fast path — key exists ════════════════════════════════════════════
@@ -147,7 +149,7 @@ void Spymap::set(const char* key, const void* value, size_t size, TypeTag type,
                 std::memcpy(value_ptr(h), value, size);
                 h->value_size   = size;
                 h->type_tag     = type;
-                h->timestamp_ns = timestamp ? timestamp : now_ns();
+                h->timestamp_ns = (timestamp >= 0) ? timestamp : now_ns();
                 h->source_node  = source_node;
             }
             return;
@@ -171,7 +173,7 @@ void Spymap::set(const char* key, const void* value, size_t size, TypeTag type,
             header_cache_[key] = h;
             up_lock.unlock();
             thread_lock.unlock();
-            set(key, value, size, type);    // tail recurse — at most once
+            set(key, value, size, type, source_node, timestamp);    // tail recurse — at most once
             return;
         }
 
@@ -231,9 +233,8 @@ void Spymap::set(const char* key, const void* value, size_t size, TypeTag type,
 
         new_h->data_offset  = value_offset;
         new_h->value_size   = size;             // actual written bytes
-        new_h->timestamp_ns = timestamp ? timestamp : now_ns();
+        new_h->timestamp_ns = (timestamp >= 0) ? timestamp : now_ns();
         new_h->source_node  = source_node;
-        // source_node left 0 — set by higher-level API
 
         // ── 3. Commit both cursors atomically under exclusive lock ─────────
         //
