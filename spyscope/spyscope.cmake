@@ -11,7 +11,6 @@ add_executable(spyscope
 
 target_include_directories(spyscope PRIVATE 
     /opt/homebrew/include/
-    deps/wxWidgets/include/
 )
 
 find_package(wxWidgets REQUIRED COMPONENTS core base aui)
