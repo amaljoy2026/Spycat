@@ -96,14 +96,14 @@ public:
     // ── Write ─────────────────────────────────────────────────────────────
 
     void set(const char* key, const void* value, size_t size, TypeTag type,
-             int64_t timestamp=0);
+             int override=0, int64_t timestamp=0);
     void set(const std::string& key, const void* value, size_t size,
-             TypeTag type = TypeTag::Raw, int64_t timestamp=-1);
+             TypeTag type = TypeTag::Raw, int override=0, int64_t timestamp=-1);
 
-    void set(const std::string& key, double             value, int64_t timestamp=-1);
-    void set(const std::string& key, int64_t            value, int64_t timestamp=-1);
-    void set(const std::string& key, bool               value, int64_t timestamp=-1);
-    void set(const std::string& key, const std::string& value, int64_t timestamp=-1);
+    void set(const std::string& key, double             value, int override=0, int64_t timestamp=-1);
+    void set(const std::string& key, int64_t            value, int override=0, int64_t timestamp=-1);
+    void set(const std::string& key, bool               value, int override=0, int64_t timestamp=-1);
+    void set(const std::string& key, const std::string& value, int override=0, int64_t timestamp=-1);
 
     // ── Read ──────────────────────────────────────────────────────────────
 

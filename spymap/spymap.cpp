@@ -111,8 +111,11 @@ Header* Spymap::find(const char* key) const
 
 // timestamp: nanoseconds since Unix epoch (from sender's clock for network packets).
 // Pass -1 (default) to stamp with the local clock at time of write.
+// override: priority of this write. Writes with a lower priority than the
+// current entry's override_priority are silently rejected. On success, the
+// entry's override_priority is updated to the new value.
 void Spymap::set(const char* key, const void* value, size_t size, TypeTag type,
-    int64_t timestamp)
+    int override, int64_t timestamp)
 {
     // ══ Fast path — key exists ════════════════════════════════════════════
     // Shared thread lock + sharable dict lock — structure is stable.
@@ -147,6 +150,11 @@ void Spymap::set(const char* key, const void* value, size_t size, TypeTag type,
                 bip::scoped_lock<bip::interprocess_sharable_mutex>
                     val_lock(h->value_mutex);           // exclusive on value bytes
 
+                // override == -1: unconditional write, clears priority back to 0.
+                // Otherwise reject writes with insufficient priority.
+                if (override != -1 && override < h->override_priority)
+                    return;
+
                 // If an explicit timestamp was supplied, reject stale writes.
                 // Comparison is done inside the lock to avoid a TOCTOU race.
                 const int64_t new_ts = (timestamp >= 0) ? timestamp : now_ns();
@@ -154,10 +162,11 @@ void Spymap::set(const char* key, const void* value, size_t size, TypeTag type,
                     return;
 
                 std::memcpy(value_ptr(h), value, size);
-                h->value_size   = size;
-                h->type_tag     = type;
-                h->timestamp_ns = new_ts;
-                h->source_node  = source_id_;
+                h->value_size        = size;
+                h->type_tag          = type;
+                h->timestamp_ns      = new_ts;
+                h->source_node       = source_id_;
+                h->override_priority = (override == -1) ? 0 : override;
             }
             return;
         }
@@ -180,7 +189,7 @@ void Spymap::set(const char* key, const void* value, size_t size, TypeTag type,
             header_cache_[key] = h;
             up_lock.unlock();
             thread_lock.unlock();
-            set(key, value, size, type, timestamp);    // tail recurse — at most once
+            set(key, value, size, type, timestamp, override);    // tail recurse — at most once
             return;
         }
 
@@ -238,10 +247,11 @@ void Spymap::set(const char* key, const void* value, size_t size, TypeTag type,
             shm_base() + dh->max_size - new_dir_count * HEADER_SLOT_SIZE
         ) Header(key, aligned_value_size, type);
 
-        new_h->data_offset  = value_offset;
-        new_h->value_size   = size;             // actual written bytes
-        new_h->timestamp_ns = (timestamp >= 0) ? timestamp : now_ns();
-        new_h->source_node  = source_id_;
+        new_h->data_offset       = value_offset;
+        new_h->value_size        = size;             // actual written bytes
+        new_h->timestamp_ns      = (timestamp >= 0) ? timestamp : now_ns();
+        new_h->source_node       = source_id_;
+        new_h->override_priority = (override == -1) ? 0 : override;
 
         // ── 3. Commit both cursors atomically under exclusive lock ─────────
         //
@@ -355,29 +365,29 @@ std::vector<Spymap::Entry> Spymap::snapshot() const
 // ── Typed set overloads ───────────────────────────────────────────────────────
 
 void Spymap::set(const std::string& key, const void* value, size_t size,
-    TypeTag type, int64_t timestamp)
+    TypeTag type, int override, int64_t timestamp)
 {
-    set(key.c_str(), value, size, type, timestamp);
+    set(key.c_str(), value, size, type, override, timestamp);
 }
 
-void Spymap::set(const std::string& key, double value, int64_t timestamp)
+void Spymap::set(const std::string& key, double value, int override, int64_t timestamp)
 {
-    set(key.c_str(), &value, sizeof(double), TypeTag::Double, timestamp);
+    set(key.c_str(), &value, sizeof(double), TypeTag::Double, override, timestamp);
 }
 
-void Spymap::set(const std::string& key, int64_t value, int64_t timestamp)
+void Spymap::set(const std::string& key, int64_t value, int override, int64_t timestamp)
 {
-    set(key.c_str(), &value, sizeof(int64_t), TypeTag::Int64, timestamp);
+    set(key.c_str(), &value, sizeof(int64_t), TypeTag::Int64, override, timestamp);
 }
 
-void Spymap::set(const std::string& key, bool value, int64_t timestamp)
+void Spymap::set(const std::string& key, bool value, int override, int64_t timestamp)
 {
-    set(key.c_str(), &value, sizeof(bool), TypeTag::Bool, timestamp);
+    set(key.c_str(), &value, sizeof(bool), TypeTag::Bool, override, timestamp);
 }
 
-void Spymap::set(const std::string& key, const std::string& value, int64_t timestamp)
+void Spymap::set(const std::string& key, const std::string& value, int override, int64_t timestamp)
 {
-    set(key.c_str(), value.data(), value.size() + 1, TypeTag::String, timestamp);
+    set(key.c_str(), value.data(), value.size() + 1, TypeTag::String, override, timestamp);
 }
 
 // ── Typed get overloads ───────────────────────────────────────────────────────

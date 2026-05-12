@@ -86,6 +86,7 @@ struct Header
         , type_tag(type_)
         , timestamp_ns(0)
         , source_node(0)
+        , override_priority(0)
     {
         std::strncpy(key, key_, sizeof(key) - 1);
         key[sizeof(key) - 1] = '\0';
@@ -113,6 +114,7 @@ struct Header
     TypeTag  type_tag;          // how to interpret the value bytes
     int64_t  timestamp_ns;      // wall-clock write time, ns since Unix epoch (NTP)
     uint32_t source_node;       // which node last wrote — display metadata only
+    int      override_priority; // minimum priority required to overwrite this entry
 };
 
 // ── Size of one directory slot ────────────────────────────────────────

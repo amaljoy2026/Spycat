@@ -53,7 +53,35 @@ void test_multiprocess()
     }
 }
 
+void test_priority_override()
+{
+    std::cout << "\n=== test_priority_override ===\n";
+    Spymap::destroy("TestPriorityOverride");
+    Spymap m("TestPriorityOverride");
+
+    int pid = fork();
+
+    if (pid == 0) {
+        Spymap m("TestMultiprocess");
+        await_value(m, "counter", 42); // wait for parent to create the key
+        m.set("counter", int64_t(12), int64_t(-1), 0);
+        std::cout << "counter value: " << m.get_int64("counter") << " (expect 42)\n";
+        m.set("counter", int64_t(1), int64_t(-1), -1); // release the override
+        std::cout << "counter value: " << m.get_int64("counter") << " (expect 1)\n";
+        exit(0);
+    } else {
+        Spymap m("TestMultiprocess");
+        std::cout << "Process PIDs: " << getpid() << ", " << pid << "\n";
+        m.set("counter", int64_t(42), int64_t(-1), 10); // high-priority write
+        waitpid(pid, nullptr, 0);
+        Spymap::destroy("TestMultiprocess");
+    }
+
+    Spymap::destroy("TestPriorityOverride");
+}
+
 int main()
 {
     test_multiprocess();
+    test_priority_override();
 }
