@@ -1,18 +1,47 @@
+// spyplot_main.cpp
+// Minimal wxWidgets driver for SpyPlot development.
+
 #include <wx/wx.h>
- 
-class App : public wxApp {
+#include <cmath>
+
+#include "../spymap/spymap.hpp"
+#include "spyplot.hpp"
+#include "spywatch.hpp"
+#include "spynavigator.hpp"
+
+using namespace spycat;
+
+class SpyPlotApp : public wxApp
+{
 public:
-    bool OnInit() {
-        wxFrame* window = new wxFrame(NULL, wxID_ANY, "GUI Test", wxDefaultPosition, wxSize(600, 400));
-        wxBoxSizer* sizer = new wxBoxSizer(wxHORIZONTAL);
-        wxStaticText* text = new wxStaticText(window, wxID_ANY, "Well Done!\nEverything seems to be working",
-                                              wxDefaultPosition, wxDefaultSize, wxALIGN_CENTRE_HORIZONTAL);
-        text->SetFont(wxFont(20, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
-        sizer->Add(text, 1, wxALIGN_CENTER);
-        window->SetSizer(sizer);
-        window->Show();
+    bool OnInit() override
+    {
+        map_ = new Spymap("_test_");
+        source_ = new DataSource(map_);
+        
+        wxFrame* frame = new wxFrame(nullptr, wxID_ANY, "SpyPlot Driver",
+                                     wxDefaultPosition, wxSize(900, 400));
+        
+        nav_ = new SpyNavigator(frame, source_);
+        
+        timer = new wxTimer();
+        timer->Bind(wxEVT_TIMER, &SpyPlotApp::OnTimer, this);
+        timer->Start(17);
+        frame->Show(true);
         return true;
     }
+
+    void OnTimer(wxEvent& event)
+    {
+        source_->Poll();
+        nav_->Poll();
+    }
+
+    wxTimer *timer;
+    Spymap *map_; 
+    DataSource *source_;
+    SpyNavigator *nav_;
+    
 };
- 
-wxIMPLEMENT_APP(App);
+
+wxIMPLEMENT_APP(SpyPlotApp);

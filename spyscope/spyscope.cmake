@@ -5,8 +5,13 @@ set(CMAKE_CXX_STANDARD 17)  # use C++17
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-add_executable(spyscope
+add_executable(spyscope 
     ${CMAKE_SOURCE_DIR}/spyscope/main.cpp
+    ${CMAKE_SOURCE_DIR}/spyscope/spyplot.cpp
+    ${CMAKE_SOURCE_DIR}/spyscope/spywatch.cpp
+    ${CMAKE_SOURCE_DIR}/spymap/spymap.cpp
+    ${CMAKE_SOURCE_DIR}/spyscope/spynavigator.cpp
+    ${CMAKE_SOURCE_DIR}/spyscope/datasource.cpp
 )
 
 target_include_directories(spyscope PRIVATE 
