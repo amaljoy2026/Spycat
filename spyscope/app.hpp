@@ -11,6 +11,7 @@ namespace spycat
     class DataSource;
     class SpyNavigator;
     class SpyPlot;
+    class SpyWatch;
 }
 
 class SpyScope : public wxApp
@@ -26,6 +27,7 @@ private:
     spycat::DataSource*   source_  = nullptr;
     spycat::SpyNavigator* nav_     = nullptr;
     spycat::SpyPlot*      plot_    = nullptr;
+    spycat::SpyWatch*     watch_   = nullptr;
 };
 
 #endif // __SPYSCOPE_APP_HPP__

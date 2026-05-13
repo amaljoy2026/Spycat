@@ -20,11 +20,11 @@ namespace spycat
 // Forward-declare DataSource — full definition included in spynavigator.cpp
 class DataSource;
 
-static const wxColour NAV_BG        { 0xFF, 0xFF, 0xFF };
+static const wxColour NAV_BG        { 0xFFFFFF };
 static const wxColour NAV_PRIMARY   { 0x00, 0x66, 0x00 };
-static const wxColour NAV_SEL_BG    { 0x00, 0x66, 0x00 };
-static const wxColour NAV_SEL_FG    { 0xFF, 0xFF, 0xFF };
-static const wxColour NAV_TEXT      { 0x00, 0x00, 0x00 };
+static const wxColour NAV_SEL_BG    { 0xaffc41 };
+static const wxColour NAV_SEL_FG    { 0x000000 };
+static const wxColour NAV_TEXT      { 0x000000 };
 
 static const wxString NAV_GLOBAL_BUCKET = "Global";
 

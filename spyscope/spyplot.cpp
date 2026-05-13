@@ -1,5 +1,7 @@
 // spyplot.cpp
 #include "spyplot.hpp"
+#include "app.hpp"
+#include "datasource.hpp"
 #include <wx/dcbuffer.h>
 #include <cmath>
 #include <algorithm>
@@ -19,12 +21,12 @@ const wxColour SpyPlot::COL_TEXT  { 0x00, 0x66, 0x00 };
 const wxColour SpyPlot::COL_VALUE { 0xFF, 0xFF, 0xFF };
 
 // ── Construction ──────────────────────────────────────────────────────────────
-SpyPlot::SpyPlot(wxWindow* parent, DataSource* source, const std::string& key,
+SpyPlot::SpyPlot(wxWindow* parent, SpyScope& app, const std::string& key,
                  wxWindowID id, const wxPoint& pos,
                  const wxSize& size, long style)
     : wxPanel(parent, id, pos, size, style)
     , key_(key)
-    , source_(source)
+    , source_(app.GetDataSource())
     , paint_timer_(this)
     , data_timer_(this)
 {

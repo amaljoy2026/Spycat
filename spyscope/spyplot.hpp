@@ -8,10 +8,15 @@
 #include <string>
 #include <boost/circular_buffer.hpp>
 
-#include "datasource.hpp"
+// Forward-declare SpyScope (global namespace) — full definition in app.hpp,
+// included only in spyplot.cpp to avoid a circular header dependency.
+class SpyScope;
 
 namespace spycat
 {
+
+// Forward-declare DataSource — full definition included in spyplot.cpp
+class DataSource;
 
 struct Sample {
     double time_s;   // seconds since plot creation
@@ -22,7 +27,7 @@ class SpyPlot : public wxPanel
 {
 public:
     SpyPlot(wxWindow* parent,
-            DataSource*        source,
+            SpyScope&          app,
             const std::string& key    = "signal",
             wxWindowID id             = wxID_ANY,
             const wxPoint& pos        = wxDefaultPosition,

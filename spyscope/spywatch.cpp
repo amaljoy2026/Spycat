@@ -1,9 +1,53 @@
 // spywatch.cpp
 #include "spywatch.hpp"
+#include "app.hpp"
+#include "datasource.hpp"
 #include <algorithm>
+#include <sstream>
+#include <iomanip>
+#include <variant>
 
 namespace spycat
 {
+
+// ── Formatting helpers ────────────────────────────────────────────────────────
+
+static std::string type_tag_to_string(TypeTag tag)
+{
+    switch (tag) {
+        case TypeTag::Double: return "f64";
+        case TypeTag::Float:  return "f32";
+        case TypeTag::Int64:  return "i64";
+        case TypeTag::Int32:  return "i32";
+        case TypeTag::Bool:   return "bool";
+        case TypeTag::String: return "string";
+        default:              return "raw";
+    }
+}
+
+static std::string entry_value_to_string(const Spymap::Entry& e)
+{
+    return std::visit([](auto&& v) -> std::string {
+        using T = std::decay_t<decltype(v)>;
+        if constexpr (std::is_same_v<T, bool>) {
+            return v ? "true" : "false";
+        } else if constexpr (std::is_same_v<T, double>) {
+            std::ostringstream ss;
+            ss << std::setprecision(7) << v;
+            return ss.str();
+        } else if constexpr (std::is_same_v<T, float>) {
+            std::ostringstream ss;
+            ss << std::setprecision(5) << v;
+            return ss.str();
+        } else if constexpr (std::is_arithmetic_v<T>) {
+            return std::to_string(v);
+        } else if constexpr (std::is_same_v<T, std::string>) {
+            return v;
+        } else {
+            return "[" + std::to_string(v.size()) + " bytes]";
+        }
+    }, e.value);
+}
 
 // ── ToggleBox ─────────────────────────────────────────────────────────────────
 
@@ -52,9 +96,13 @@ void ToggleBox::OnPaint(wxPaintEvent&)
 
 // ── SpyWatch ──────────────────────────────────────────────────────────────────
 
-SpyWatch::SpyWatch(wxWindow* parent, wxWindowID id)
+SpyWatch::SpyWatch(wxWindow* parent, SpyScope& app, wxWindowID id)
     : wxScrolledWindow(parent, id)
+    , source_(app.GetDataSource())
+    , data_timer_(this)
 {
+    Bind(wxEVT_TIMER, &SpyWatch::OnDataTimer, this, data_timer_.GetId());
+    data_timer_.Start(17);   // ~60 Hz
     font_mono_   = wxFont(14, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
     font_header_ = wxFont(14, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD);
 
@@ -71,6 +119,27 @@ SpyWatch::SpyWatch(wxWindow* parent, wxWindowID id)
     SetSizer(outer);
 
     Bind(wxEVT_SIZE, &SpyWatch::OnSize, this);
+}
+
+// ── Poll / data timer ─────────────────────────────────────────────────────────
+
+void SpyWatch::OnDataTimer(wxTimerEvent&)
+{
+    Poll();
+}
+
+void SpyWatch::Poll()
+{
+    if (!source_ || !source_->IsReady()) return;
+
+    for (const auto& entry : entries_) {
+        auto e = source_->Get(entry.key);
+        if (!e) continue;
+
+        UpdateEntry(entry.key,
+                    type_tag_to_string(e->type_tag),
+                    entry_value_to_string(*e));
+    }
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────

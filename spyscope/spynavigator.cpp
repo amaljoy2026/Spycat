@@ -24,9 +24,9 @@ SpyNavigator::SpyNavigator(wxWindow* parent, SpyScope& app, wxWindowID id)
 {
     Bind(wxEVT_TIMER, &SpyNavigator::OnDataTimer, this, data_timer_.GetId());
     data_timer_.Start(17);   // ~60 Hz
-    font_mono_ = wxFont(16, wxFONTFAMILY_TELETYPE,
+    font_mono_ = wxFont(14, wxFONTFAMILY_TELETYPE,
                         wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
-
+    
     SetBackgroundColour(NAV_BG);
 
     tree_ = new wxTreeCtrl(this, wxID_ANY,
@@ -39,6 +39,7 @@ SpyNavigator::SpyNavigator(wxWindow* parent, SpyScope& app, wxWindowID id)
 
     tree_->SetBackgroundColour(NAV_BG);
     tree_->SetForegroundColour(NAV_TEXT);
+    tree_->Select
     tree_->SetFont(font_mono_);
 
     // ── Image list — placeholder bitmaps, swap for real assets later ──────

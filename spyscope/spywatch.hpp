@@ -9,8 +9,15 @@
 #include <vector>
 #include <functional>
 
+// Forward-declare SpyScope (global namespace) — full definition in app.hpp,
+// included only in spywatch.cpp to avoid a circular header dependency.
+class SpyScope;
+
 namespace spycat
 {
+
+// Forward-declare DataSource — full definition included in spywatch.cpp
+class DataSource;
 
 // ── Colours ───────────────────────────────────────────────────────────────────
 static const wxColour WATCH_BG        { 0xFF, 0xFF, 0xFF };
@@ -57,7 +64,10 @@ struct WatchEntry
 class SpyWatch : public wxScrolledWindow
 {
 public:
-    SpyWatch(wxWindow* parent, wxWindowID id = wxID_ANY);
+    SpyWatch(wxWindow* parent, SpyScope& app, wxWindowID id = wxID_ANY);
+
+    // Refresh all watched keys from DataSource
+    void Poll();
 
     void AddKey(const std::string& key);
     void RemoveKey(const std::string& key);
@@ -68,6 +78,7 @@ public:
     void Clear();
 
 private:
+    void OnDataTimer(wxTimerEvent&);
     void RebuildRows();
     void OnSize(wxSizeEvent&);
 
@@ -92,6 +103,9 @@ private:
     static constexpr int COL_OVR   = 3;
     static constexpr int ROW_H     = 28;
     static constexpr int HEADER_H  = 32;
+
+    DataSource*              source_ = nullptr;
+    wxTimer                  data_timer_;
 
     std::vector<WatchEntry>  entries_;
     std::vector<RowWidgets>  row_widgets_;
