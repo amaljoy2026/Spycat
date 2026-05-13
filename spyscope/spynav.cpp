@@ -188,6 +188,8 @@ void SpyNav::OnSelChanged(wxTreeEvent& e)
 
 void SpyNav::OnBeginDrag(wxTreeEvent& e)
 {
+    e.Skip();
+
     wxTreeItemId item = e.GetItem();
     if (!item.IsOk()) return;
 
@@ -196,14 +198,19 @@ void SpyNav::OnBeginDrag(wxTreeEvent& e)
         // Namespace node — don't allow drag
         return;
     }
-
+    
     // Allow the drag to proceed
     e.Allow();
 
     wxString full_key = data->GetKey();
     wxTextDataObject drag_data(full_key);
     wxDropSource source(drag_data, tree_);
-    source.DoDragDrop(wxDrag_CopyOnly);
+    wxDragResult result = source.DoDragDrop(wxDrag_CopyOnly);
+    
+    // Explicitly release internal focus states immediately after execution
+    if (this->HasCapture()) {
+        this->ReleaseMouse();
+    }
 }
 
 } // namespace spycat

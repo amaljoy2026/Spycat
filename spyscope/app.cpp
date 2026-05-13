@@ -1,43 +1,46 @@
-// main.cpp
+// app.cpp
 #include "app.hpp"
+#include "mainframe.hpp"
 #include "datasource.hpp"
 #include "spynav.hpp"
 #include "spyplot.hpp"
 #include "spywatch.hpp"
-
-#include <wx/splitter.h>
+#include "spydefault.hpp"
 
 using namespace spycat;
 
-#include <wx/wx.h>
-#include <wx/aui/aui.h>
-#include "mainframe.hpp"
-#include <wx/textctrl.h>
-
-#include "spynav.hpp"
-#include "spyplot.hpp"
-#include "spywatch.hpp"
-
-bool App::OnInit() {
+bool App::OnInit()
+{
     source_ = new DataSource("_test_");
-    frame_ = new MainFrame("Docking Test");
+
+    frame_ = new MainFrame("Spyscope", *this);
     frame_->SetBackgroundColour(GetTheme().GetSecondaryBackgroundColor());
 
-    SpyNav* nav = new SpyNav(frame_, *this);
-    SpyPlot *plot = new SpyPlot(frame_, *this);
-    SpyWatch *watch = new SpyWatch(frame_, *this);    
+    wxAuiManager& dock = frame_->GetDock();
+    // All content panels are created with SpyDock as parent —
+    // SpyDockPane::Reparent fixes up the hierarchy when AddContent is called.
+    dock.AddPane(new SpyNav(frame_, *this), wxAuiPaneInfo()
+        .Caption("Navigator")
+        .CloseButton(true)
+        //.MinSize({100, -1}),
+        .Left()
+    );
+    dock.AddPane(new SpyWatch(frame_, *this), wxAuiPaneInfo()
+        .Caption("Watch")
+        .CloseButton(true)
+        //.MinSize({-1, 100}),
+        .Bottom()
+    );
+    dock.AddPane(new SpyDefault(frame_, *this), wxAuiPaneInfo()
+        .Caption("")
+        .CloseButton(true)
+        //.MinSize({-1, 100}),
+        .Center()
+    );
 
-    // frame_->GetDock().AddPane(new SpyNav(frame_, *this), wxAuiPaneInfo()
-    //     .Caption("Navigator").CloseButton().Left().MinSize({1000, 100}));
-    frame_->GetDock().AddPane(nav, wxAuiPaneInfo().Name("nav").Caption("Navigator").Left());
-    frame_->GetDock().AddPane(watch, wxAuiPaneInfo().Name("watch").Caption("Watch").Bottom());
-    frame_->GetDock().AddPane(plot, wxAuiPaneInfo().Name("plot").CenterPane());
-    frame_->GetDock().Update();
-
+    dock.Update();
     frame_->Show();
     return true;
 }
 
 wxIMPLEMENT_APP(App);
-
-

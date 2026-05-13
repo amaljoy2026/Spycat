@@ -1,19 +1,17 @@
+// mainframe.cpp
 #include "mainframe.hpp"
-#include "spynav.hpp"
+
+#include <wx/aui/aui.h>
 
 using namespace spycat;
 
-MainFrame::MainFrame(const wxString& title)
-    : wxFrame(NULL, wxID_ANY, title, wxDefaultPosition, wxSize(800, 600))
+MainFrame::MainFrame(const wxString& title, App& app)
+    : wxFrame(nullptr, wxID_ANY, title, wxDefaultPosition, wxSize(1024, 768))
 {
-    // 1. Tell the manager to control this top-level frame window
     dock_.SetManagedWindow(this);
-
-    // 4. Force calculation and visually layout the newly configured panels
-    dock_.Update();
 }
 
-MainFrame::~MainFrame() {
-    // Release and cleanly destroy layout rules to prevent memory corruption leaks
+MainFrame::~MainFrame()
+{
     dock_.UnInit();
 }

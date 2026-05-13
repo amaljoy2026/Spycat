@@ -1,13 +1,33 @@
 // spywatch.cpp
 #include "spywatch.hpp"
 
+#include <wx/dnd.h>
 #include <algorithm>
 #include <sstream>
 #include <iomanip>
 #include <variant>
 
+#include "mainframe.hpp"
+
 namespace spycat
 {
+
+// ── Drop target ───────────────────────────────────────────────────────────────
+
+class WatchDropTarget : public wxTextDropTarget
+{
+public:
+    WatchDropTarget(SpyWatch* watch) : watch_(watch) {}
+
+    bool OnDropText(wxCoord, wxCoord, const wxString& text) override
+    {
+        watch_->AddKey(text.ToStdString());
+        return true;
+    }
+
+private:
+    SpyWatch* watch_;
+};
 
 // ── Formatting helpers ────────────────────────────────────────────────────────
 
@@ -116,6 +136,8 @@ SpyWatch::SpyWatch(wxWindow* parent, App& app, wxWindowID id)
     SetSizer(outer);
 
     Bind(wxEVT_SIZE, &SpyWatch::OnSize, this);
+
+    SetDropTarget(new WatchDropTarget(this));
 }
 
 // ── Poll / data timer ─────────────────────────────────────────────────────────
@@ -154,6 +176,7 @@ void SpyWatch::AddKey(const std::string& key)
     entry.value = "—";
     entries_.push_back(entry);
     RebuildRows();
+    app_.GetMainFrame()->GetDock().Update();
 }
 
 void SpyWatch::RemoveKey(const std::string& key)

@@ -2,6 +2,7 @@
 #include "spyplot.hpp"
 
 #include <wx/dcbuffer.h>
+#include <wx/dnd.h>
 #include <cmath>
 #include <algorithm>
 #include <sstream>
@@ -12,6 +13,23 @@
 
 namespace spycat
 {
+
+// ── Drop target ───────────────────────────────────────────────────────────────
+
+class PlotDropTarget : public wxTextDropTarget
+{
+public:
+    PlotDropTarget(SpyPlot* plot) : plot_(plot) {}
+
+    bool OnDropText(wxCoord, wxCoord, const wxString& text) override
+    {
+        plot_->SetKey(text.ToStdString());
+        return true;
+    }
+
+private:
+    SpyPlot* plot_;
+};
 
 // ── Colour palette ────────────────────────────────────────────────────────────
 // const wxColour SpyPlot::COL_BG    { 0xFF, 0xFF, 0xFF };
@@ -42,6 +60,8 @@ SpyPlot::SpyPlot(wxWindow* parent, App& app, const std::string& key,
 
     paint_timer_.Start(16);   // ~60 Hz repaint
     data_timer_.Start(16);    // ~60 Hz data ingestion
+
+    SetDropTarget(new PlotDropTarget(this));
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
