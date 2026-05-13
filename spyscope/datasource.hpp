@@ -19,7 +19,7 @@ namespace spycat
 class DataSource : public wxEvtHandler
 {
 public:
-    explicit DataSource(SpyScope& app);
+    explicit DataSource(const std::string& shmkey);
 
     // Rebuild cache from a fresh Spymap snapshot.
     // Also called internally by the data timer — safe to call externally too.
@@ -41,7 +41,7 @@ public:
 private:
     void OnTimer(wxTimerEvent&);
 
-    SpyScope&                                      app_;
+    Spymap                                         map_;
     wxTimer                                        timer_;
     std::unordered_map<std::string, Spymap::Entry> cache_;
     bool                                           ready_ = false;

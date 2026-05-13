@@ -8,6 +8,9 @@
 #include <string>
 #include <boost/circular_buffer.hpp>
 
+#include "datasource.hpp"
+#include "app.hpp"
+
 // Forward-declare SpyScope (global namespace) — full definition in app.hpp,
 // included only in spyplot.cpp to avoid a circular header dependency.
 class SpyScope;
@@ -27,7 +30,7 @@ class SpyPlot : public wxPanel
 {
 public:
     SpyPlot(wxWindow* parent,
-            SpyScope&          app,
+            App& app,
             const std::string& key    = "signal",
             wxWindowID id             = wxID_ANY,
             const wxPoint& pos        = wxDefaultPosition,
@@ -70,7 +73,7 @@ private:
 
     // Identity
     std::string key_;
-    DataSource* source_;
+    App& app_;
 
     // Ring buffer — 10 min at 60 Hz = 36000 samples, cap at that
     boost::circular_buffer<Sample> data_ { 36000 };

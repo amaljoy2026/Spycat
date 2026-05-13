@@ -1,7 +1,6 @@
 // spywatch.cpp
 #include "spywatch.hpp"
-#include "app.hpp"
-#include "datasource.hpp"
+
 #include <algorithm>
 #include <sstream>
 #include <iomanip>
@@ -96,21 +95,19 @@ void ToggleBox::OnPaint(wxPaintEvent&)
 
 // ── SpyWatch ──────────────────────────────────────────────────────────────────
 
-SpyWatch::SpyWatch(wxWindow* parent, SpyScope& app, wxWindowID id)
+SpyWatch::SpyWatch(wxWindow* parent, App& app, wxWindowID id)
     : wxScrolledWindow(parent, id)
-    , source_(app.GetDataSource())
+    , app_(app)
     , data_timer_(this)
 {
     Bind(wxEVT_TIMER, &SpyWatch::OnDataTimer, this, data_timer_.GetId());
     data_timer_.Start(17);   // ~60 Hz
-    font_mono_   = wxFont(14, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
-    font_header_ = wxFont(14, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD);
 
-    SetBackgroundColour(WATCH_BG);
+    SetBackgroundColour(app_.GetTheme().GetPrimaryBackgroundColor());
     SetScrollRate(0, ROW_H);
 
     inner_ = new wxPanel(this, wxID_ANY);
-    inner_->SetBackgroundColour(WATCH_BG);
+    inner_->SetBackgroundColour(app_.GetTheme().GetPrimaryBackgroundColor());
 
     RebuildRows();
 
@@ -130,10 +127,12 @@ void SpyWatch::OnDataTimer(wxTimerEvent&)
 
 void SpyWatch::Poll()
 {
-    if (!source_ || !source_->IsReady()) return;
+    DataSource *source = app_.GetDataSource();
+
+    if (!source || !source->IsReady()) return;
 
     for (const auto& entry : entries_) {
-        auto e = source_->Get(entry.key);
+        auto e = source->Get(entry.key);
         if (!e) continue;
 
         UpdateEntry(entry.key,
@@ -180,7 +179,7 @@ void SpyWatch::UpdateEntry(const std::string& key,
             row_widgets_[i].type_label->SetLabel(wxString::FromUTF8(type));
             row_widgets_[i].value_label->SetLabel(wxString::FromUTF8(value));
             row_widgets_[i].value_label->SetForegroundColour(
-                entries_[i].override_active ? WATCH_VALUE_OVR : WATCH_TEXT);
+                entries_[i].override_active ? app_.GetTheme().GetHighlightColor() : app_.GetTheme().GetPrimaryTextColor());
         }
         break;
     }
@@ -227,13 +226,13 @@ void SpyWatch::BuildHeaderRow(wxGridBagSizer* sizer)
     auto make_header = [&](const wxString& text, int col, int width) {
         wxPanel* cell = new wxPanel(inner_, wxID_ANY,
                                     wxDefaultPosition, wxSize(width, HEADER_H));
-        cell->SetBackgroundColour(WATCH_HEADER_BG);
+        cell->SetBackgroundColour(app_.GetTheme().GetHighlightColor());
 
         wxStaticText* lbl = new wxStaticText(cell, wxID_ANY, text,
                                               wxDefaultPosition, wxDefaultSize,
                                               wxALIGN_LEFT);
-        lbl->SetForegroundColour(WATCH_HEADER_FG);
-        lbl->SetFont(font_header_);
+        lbl->SetForegroundColour(app_.GetTheme().GetHighlightTextColor());
+        lbl->SetFont(app_.GetTheme().GetBoldFont());
 
         auto* s = new wxBoxSizer(wxHORIZONTAL);
         s->AddSpacer(8);
@@ -253,7 +252,7 @@ SpyWatch::RowWidgets SpyWatch::BuildDataRow(wxGridBagSizer* sizer,
                                              int row, WatchEntry& entry)
 {
     RowWidgets rw;
-    wxColour bg = (row % 2 == 0) ? WATCH_ROW_ALT : WATCH_BG;
+    wxColour bg = (row % 2 == 0) ? app_.GetTheme().GetAltBackgroundColor() : app_.GetTheme().GetPrimaryBackgroundColor();
 
     // ── Key ───────────────────────────────────────────────────────────────
     {
@@ -265,8 +264,8 @@ SpyWatch::RowWidgets SpyWatch::BuildDataRow(wxGridBagSizer* sizer,
                                          wxString::FromUTF8(entry.key),
                                          wxDefaultPosition, wxDefaultSize,
                                          wxST_ELLIPSIZE_END);
-        rw.key_label->SetFont(font_mono_);
-        rw.key_label->SetForegroundColour(WATCH_PRIMARY);
+        rw.key_label->SetFont(app_.GetTheme().GetFont());
+        rw.key_label->SetForegroundColour(app_.GetTheme().GetPrimaryTextColor());
 
         auto* s = new wxBoxSizer(wxHORIZONTAL);
         s->AddSpacer(8);
@@ -283,8 +282,8 @@ SpyWatch::RowWidgets SpyWatch::BuildDataRow(wxGridBagSizer* sizer,
 
         rw.type_label = new wxStaticText(cell, wxID_ANY,
                                           wxString::FromUTF8(entry.type));
-        rw.type_label->SetFont(font_mono_);
-        rw.type_label->SetForegroundColour(WATCH_TEXT);
+        rw.type_label->SetFont(app_.GetTheme().GetFont());
+        rw.type_label->SetForegroundColour(app_.GetTheme().GetPrimaryTextColor());
 
         auto* s = new wxBoxSizer(wxHORIZONTAL);
         s->AddSpacer(8);
@@ -303,9 +302,9 @@ SpyWatch::RowWidgets SpyWatch::BuildDataRow(wxGridBagSizer* sizer,
                                            wxString::FromUTF8(entry.value),
                                            wxDefaultPosition, wxDefaultSize,
                                            wxST_ELLIPSIZE_END);
-        rw.value_label->SetFont(font_mono_);
+        rw.value_label->SetFont(app_.GetTheme().GetFont());
         rw.value_label->SetForegroundColour(
-            entry.override_active ? WATCH_VALUE_OVR : WATCH_TEXT);
+            entry.override_active ? app_.GetTheme().GetHighlightColor() : app_.GetTheme().GetPrimaryTextColor());
 
         auto* s = new wxBoxSizer(wxHORIZONTAL);
         s->AddSpacer(8);
@@ -336,9 +335,9 @@ SpyWatch::RowWidgets SpyWatch::BuildDataRow(wxGridBagSizer* sizer,
                                        wxString::FromUTF8(entry.override_value),
                                        wxPoint(1, 1), wxSize(120, ROW_H - 8),
                                        wxTE_PROCESS_ENTER | wxNO_BORDER);
-        rw.ovr_field->SetFont(font_mono_);
-        rw.ovr_field->SetBackgroundColour(WATCH_FIELD_BG);
-        rw.ovr_field->SetForegroundColour(WATCH_TEXT);
+        rw.ovr_field->SetFont(app_.GetTheme().GetFont());
+        rw.ovr_field->SetBackgroundColour(app_.GetTheme().GetPrimaryBackgroundColor());
+        rw.ovr_field->SetForegroundColour(app_.GetTheme().GetPrimaryTextColor());
         rw.ovr_field->Enable(entry.override_active);
 
         auto* s = new wxBoxSizer(wxHORIZONTAL);
@@ -371,7 +370,7 @@ void SpyWatch::OnOverrideToggle(bool checked, size_t index)
     entries_[index].override_active = checked;
     row_widgets_[index].ovr_field->Enable(checked);
     row_widgets_[index].value_label->SetForegroundColour(
-        checked ? WATCH_VALUE_OVR : WATCH_TEXT);
+        checked ? app_.GetTheme().GetHighlightColor() : app_.GetTheme().GetPrimaryTextColor());
 
     if (checked) {
         // Seed field with current live value if empty

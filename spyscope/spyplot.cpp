@@ -1,7 +1,6 @@
 // spyplot.cpp
 #include "spyplot.hpp"
-#include "app.hpp"
-#include "datasource.hpp"
+
 #include <wx/dcbuffer.h>
 #include <cmath>
 #include <algorithm>
@@ -9,29 +8,31 @@
 #include <iomanip>
 #include <variant>
 
+#include "theme.hpp"
+
 namespace spycat
 {
 
 // ── Colour palette ────────────────────────────────────────────────────────────
-const wxColour SpyPlot::COL_BG    { 0xFF, 0xFF, 0xFF };
-const wxColour SpyPlot::COL_GRID  { 0x00, 0x33, 0x00 };
-const wxColour SpyPlot::COL_AXIS  { 0x00, 0x66, 0x00 };
-const wxColour SpyPlot::COL_TRACE { 0x00, 0x66, 0x00 };
-const wxColour SpyPlot::COL_TEXT  { 0x00, 0x66, 0x00 };
-const wxColour SpyPlot::COL_VALUE { 0xFF, 0xFF, 0xFF };
+// const wxColour SpyPlot::COL_BG    { 0xFF, 0xFF, 0xFF };
+// const wxColour SpyPlot::COL_GRID  { 0x00, 0x33, 0x00 };
+// const wxColour SpyPlot::COL_AXIS  { 0x00, 0x66, 0x00 };
+// const wxColour SpyPlot::COL_TRACE { 0x00, 0x66, 0x00 };
+// const wxColour SpyPlot::COL_TEXT  { 0x00, 0x66, 0x00 };
+// const wxColour SpyPlot::COL_VALUE { 0xFF, 0xFF, 0xFF };
 
 // ── Construction ──────────────────────────────────────────────────────────────
-SpyPlot::SpyPlot(wxWindow* parent, SpyScope& app, const std::string& key,
+SpyPlot::SpyPlot(wxWindow* parent, App& app, const std::string& key,
                  wxWindowID id, const wxPoint& pos,
                  const wxSize& size, long style)
     : wxPanel(parent, id, pos, size, style)
     , key_(key)
-    , source_(app.GetDataSource())
+    , app_(app)
     , paint_timer_(this)
     , data_timer_(this)
 {
     SetBackgroundStyle(wxBG_STYLE_PAINT);   // required for wxAutoBufferedPaintDC
-    SetBackgroundColour(COL_BG);
+    SetBackgroundColour(app_.GetTheme().GetPrimaryBackgroundColor());
     SetMinSize({ 200, 100 });
 
     Bind(wxEVT_PAINT, &SpyPlot::OnPaint,      this);
@@ -59,9 +60,11 @@ void SpyPlot::PushSample(double value)
 // ── Data timer ────────────────────────────────────────────────────────────────
 void SpyPlot::OnDataTimer(wxTimerEvent&)
 {
-    if (!source_) return;
+    DataSource *source = app_.GetDataSource();
 
-    auto entry = source_->Get(key_);
+    if (!source) return;
+
+    auto entry = source->Get(key_);
     if (!entry) return;
 
     double value = std::visit([](auto&& v) -> double {
@@ -136,7 +139,7 @@ void SpyPlot::UpdateYRange()
 void SpyPlot::DrawBackground(wxGraphicsContext* gc)
 {
     wxSize sz = GetSize();
-    gc->SetBrush(wxBrush(COL_BG));
+    gc->SetBrush(wxBrush(app_.GetTheme().GetPrimaryBackgroundColor()));
     gc->SetPen(*wxTRANSPARENT_PEN);
     gc->DrawRectangle(0, 0, sz.x, sz.y);
 }
@@ -148,7 +151,7 @@ void SpyPlot::DrawGrid(wxGraphicsContext* gc)
     double plot_h = sz.y - MARGIN_T - MARGIN_B;
 
     // 5 horizontal grid lines
-    gc->SetPen(wxPen(COL_GRID, 1, wxPENSTYLE_DOT));
+    gc->SetPen(wxPen(app_.GetTheme().GetGridColor(), 1, wxPENSTYLE_DOT));
     const int H_LINES = 5;
     for (int i = 0; i <= H_LINES; ++i) {
         double y = MARGIN_T + i * plot_h / H_LINES;
@@ -163,7 +166,7 @@ void SpyPlot::DrawGrid(wxGraphicsContext* gc)
     }
 
     // Axis lines (brighter)
-    gc->SetPen(wxPen(COL_AXIS, 1));
+    gc->SetPen(wxPen(app_.GetTheme().GetAxisColor(), 1));
     gc->StrokeLine(MARGIN_L, MARGIN_T, MARGIN_L, MARGIN_T + plot_h);           // Y axis
     gc->StrokeLine(MARGIN_L, MARGIN_T + plot_h,
                    MARGIN_L + plot_w, MARGIN_T + plot_h);                       // X axis
@@ -172,8 +175,8 @@ void SpyPlot::DrawGrid(wxGraphicsContext* gc)
 void SpyPlot::DrawAxesLabels(wxDC& dc)
 {
     wxSize sz = GetSize();
-    dc.SetTextForeground(COL_TEXT);
-    dc.SetFont(wxFont(12, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
+    dc.SetTextForeground(app_.GetTheme().GetHighlightColor());
+    dc.SetFont(app_.GetTheme().GetBoldFont());
 
     double plot_h = sz.y - MARGIN_T - MARGIN_B;
 
@@ -209,7 +212,7 @@ void SpyPlot::DrawAxesLabels(wxDC& dc)
     }
 
     // Key name top-left
-    dc.SetTextForeground(COL_TRACE);
+    dc.SetTextForeground(app_.GetTheme().GetHighlightColor());
     dc.SetFont(wxFont(12, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
     dc.DrawText(wxString::FromUTF8(key_), MARGIN_L + 4, MARGIN_T + 2);
 }
@@ -221,7 +224,7 @@ void SpyPlot::DrawTrace(wxGraphicsContext* gc)
     double t_now  = std::chrono::duration<double>(Clock::now() - start_).count();
     double t_left = t_now - time_window_s_;
 
-    gc->SetPen(wxPen(COL_TRACE, 2));
+    gc->SetPen(wxPen(app_.GetTheme().GetHighlightColor(), 2));
 
     wxGraphicsPath path = gc->CreatePath();
     bool first = true;
@@ -254,7 +257,7 @@ void SpyPlot::DrawLatestValue(wxGraphicsContext* gc)
     double cy = ClientY(latest);
     double cx = GetSize().x - MARGIN_R - 4;
 
-    gc->SetPen(wxPen(COL_VALUE, 1));
+    gc->SetPen(wxPen(app_.GetTheme().GetHighlightColor(), 1));
     gc->SetBrush(*wxTRANSPARENT_BRUSH);
 
     // Horizontal tick at current value on Y axis

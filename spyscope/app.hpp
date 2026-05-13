@@ -4,30 +4,35 @@
 
 #include <wx/wx.h>
 #include "../spymap/spymap.hpp"
+#include "theme.hpp"
 
 // Forward-declare spycat types — full definitions included in main.cpp
 namespace spycat
 {
     class DataSource;
-    class SpyNavigator;
+    class SpyNav;
     class SpyPlot;
     class SpyWatch;
+    class MainFrame;
 }
 
-class SpyScope : public wxApp
+
+namespace spycat
+{
+
+class App : public wxApp
 {
 public:
     bool OnInit() override;
-
-    spycat::Spymap*     GetSpymap()     { return map_; }
-    spycat::DataSource* GetDataSource() { return source_; }
-
+    DataSource* GetDataSource() { return source_; }
+    Theme& GetTheme() { return theme_; }
+    MainFrame *GetMainFrame() { return frame_; }
 private:
-    spycat::Spymap*       map_     = nullptr;
-    spycat::DataSource*   source_  = nullptr;
-    spycat::SpyNavigator* nav_     = nullptr;
-    spycat::SpyPlot*      plot_    = nullptr;
-    spycat::SpyWatch*     watch_   = nullptr;
+    DataSource*   source_  = nullptr;
+    Theme         theme_;
+    MainFrame     *frame_;
 };
+
+}
 
 #endif // __SPYSCOPE_APP_HPP__

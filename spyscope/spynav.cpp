@@ -1,7 +1,6 @@
-// spynavigator.cpp
-#include "spynavigator.hpp"
-#include "app.hpp"
-#include "datasource.hpp"
+// SpyNav.cpp
+#include "spynav.hpp"
+
 #include <wx/sizer.h>
 #include <wx/imaglist.h>
 #include <wx/dnd.h>
@@ -9,38 +8,35 @@
 namespace spycat
 {
 
-wxBEGIN_EVENT_TABLE(SpyNavigator, wxPanel)
-    EVT_TREE_SEL_CHANGED(wxID_ANY, SpyNavigator::OnSelChanged)
-    EVT_TREE_BEGIN_DRAG (wxID_ANY, SpyNavigator::OnBeginDrag)
-    EVT_TREE_ITEM_EXPANDING(wxID_ANY, SpyNavigator::OnItemExpanding)
+wxBEGIN_EVENT_TABLE(SpyNav, wxPanel)
+    EVT_TREE_SEL_CHANGED(wxID_ANY, SpyNav::OnSelChanged)
+    EVT_TREE_BEGIN_DRAG (wxID_ANY, SpyNav::OnBeginDrag)
+    EVT_TREE_ITEM_EXPANDING(wxID_ANY, SpyNav::OnItemExpanding)
 wxEND_EVENT_TABLE()
 
 // ── Construction ──────────────────────────────────────────────────────────────
 
-SpyNavigator::SpyNavigator(wxWindow* parent, SpyScope& app, wxWindowID id)
+SpyNav::SpyNav(wxWindow* parent, App& app, wxWindowID id)
     : wxPanel(parent, id)
-    , source_(app.GetDataSource())
+    , app_(app)
     , data_timer_(this)
 {
-    Bind(wxEVT_TIMER, &SpyNavigator::OnDataTimer, this, data_timer_.GetId());
+    Bind(wxEVT_TIMER, &SpyNav::OnDataTimer, this, data_timer_.GetId());
     data_timer_.Start(17);   // ~60 Hz
-    font_mono_ = wxFont(14, wxFONTFAMILY_TELETYPE,
-                        wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL);
-    
-    SetBackgroundColour(NAV_BG);
+
+    SetBackgroundColour(app_.GetTheme().GetPrimaryBackgroundColor());
 
     tree_ = new wxTreeCtrl(this, wxID_ANY,
                            wxDefaultPosition, wxDefaultSize,
-                           wxTR_HAS_BUTTONS   |
-                           wxTR_LINES_AT_ROOT |
-                           wxTR_HIDE_ROOT     |
-                           wxTR_SINGLE        |
+                           wxTR_DEFAULT_STYLE | 
+                           wxTR_HIDE_ROOT | 
+                           wxTR_FULL_ROW_HIGHLIGHT |
+                           wxTR_NO_LINES |
                            wxBORDER_NONE);
 
-    tree_->SetBackgroundColour(NAV_BG);
-    tree_->SetForegroundColour(NAV_TEXT);
-    tree_->Select
-    tree_->SetFont(font_mono_);
+    tree_->SetBackgroundColour(app_.GetTheme().GetPrimaryBackgroundColor());
+    tree_->SetForegroundColour(app_.GetTheme().GetPrimaryTextColor());
+    tree_->SetFont(app_.GetTheme().GetFont());
 
     // ── Image list — placeholder bitmaps, swap for real assets later ──────
     image_list_ = new wxImageList(16, 16, true, NAV_ICON_COUNT);
@@ -49,9 +45,9 @@ SpyNavigator::SpyNavigator(wxWindow* parent, SpyScope& app, wxWindowID id)
     {
         wxBitmap bmp(16, 16);
         wxMemoryDC dc(bmp);
-        dc.SetBackground(wxBrush(NAV_BG));
+        dc.SetBackground(wxBrush(app_.GetTheme().GetPrimaryBackgroundColor()));
         dc.Clear();
-        dc.SetBrush(wxBrush(NAV_PRIMARY));
+        dc.SetBrush(wxBrush(app_.GetTheme().GetHighlightColor()));
         dc.SetPen(*wxTRANSPARENT_PEN);
         dc.DrawRectangle(2, 4, 12, 9);   // simple folder-ish rectangle
         dc.SelectObject(wxNullBitmap);
@@ -62,9 +58,9 @@ SpyNavigator::SpyNavigator(wxWindow* parent, SpyScope& app, wxWindowID id)
     {
         wxBitmap bmp(16, 16);
         wxMemoryDC dc(bmp);
-        dc.SetBackground(wxBrush(NAV_BG));
+        dc.SetBackground(wxBrush(app_.GetTheme().GetPrimaryBackgroundColor()));
         dc.Clear();
-        dc.SetBrush(wxBrush(NAV_PRIMARY));
+        dc.SetBrush(wxBrush(app_.GetTheme().GetHighlightColor()));
         dc.SetPen(*wxTRANSPARENT_PEN);
         dc.DrawCircle(8, 8, 4);
         dc.SelectObject(wxNullBitmap);
@@ -77,9 +73,6 @@ SpyNavigator::SpyNavigator(wxWindow* parent, SpyScope& app, wxWindowID id)
     // Hidden root
     root_ = tree_->AddRoot("__root__");
 
-    // Pre-create the Global bucket so it's always first
-    GetOrCreateNode(NAV_GLOBAL_BUCKET);
-
     auto* sizer = new wxBoxSizer(wxVERTICAL);
     sizer->Add(tree_, 1, wxEXPAND);
     SetSizer(sizer);
@@ -87,16 +80,18 @@ SpyNavigator::SpyNavigator(wxWindow* parent, SpyScope& app, wxWindowID id)
 
 // ── Poll / data timer ─────────────────────────────────────────────────────────
 
-void SpyNavigator::OnDataTimer(wxTimerEvent&)
+void SpyNav::OnDataTimer(wxTimerEvent&)
 {
     Poll();
 }
 
-void SpyNavigator::Poll()
+void SpyNav::Poll()
 {
-    if (!source_ || !source_->IsReady()) return;
+    DataSource *source = app_.GetDataSource();
+    
+    if (!source || !source->IsReady()) return;
 
-    std::vector<std::string> keys = source_->GetKeys();
+    std::vector<std::string> keys = source->GetKeys();
 
     // Only act on keys we haven't seen before — everything else is a no-op
     for (const auto& key : keys) {
@@ -111,7 +106,7 @@ void SpyNavigator::Poll()
 
 // Returns the tree item for a dotted path, creating intermediate nodes as needed.
 // e.g. "Engine.Cylinder" → creates Engine → Cylinder, returns Cylinder's item.
-wxTreeItemId SpyNavigator::GetOrCreateNode(const wxString& path)
+wxTreeItemId SpyNav::GetOrCreateNode(const wxString& path)
 {
     auto it = node_cache_.find(path.ToStdString());
     if (it != node_cache_.end())
@@ -139,7 +134,7 @@ wxTreeItemId SpyNavigator::GetOrCreateNode(const wxString& path)
     return node;
 }
 
-void SpyNavigator::InsertKey(const std::string& key)
+void SpyNav::InsertKey(const std::string& key)
 {
     wxString wx_key = wxString::FromUTF8(key);
 
@@ -150,7 +145,7 @@ void SpyNavigator::InsertKey(const std::string& key)
 
     if (dot == wxNOT_FOUND) {
         // No namespace — goes under Global bucket
-        parent    = GetOrCreateNode(NAV_GLOBAL_BUCKET);
+        parent    = root_;
         leaf_name = wx_key;
     } else {
         wxString ns_path = wx_key.BeforeLast('.');
@@ -171,7 +166,7 @@ void SpyNavigator::InsertKey(const std::string& key)
 
 // ── Events ────────────────────────────────────────────────────────────────────
 
-void SpyNavigator::OnSelChanged(wxTreeEvent& e)
+void SpyNav::OnSelChanged(wxTreeEvent& e)
 {
     wxTreeItemId item = e.GetItem();
     if (!item.IsOk()) return;
@@ -191,7 +186,7 @@ void SpyNavigator::OnSelChanged(wxTreeEvent& e)
     e.Skip();
 }
 
-void SpyNavigator::OnBeginDrag(wxTreeEvent& e)
+void SpyNav::OnBeginDrag(wxTreeEvent& e)
 {
     wxTreeItemId item = e.GetItem();
     if (!item.IsOk()) return;

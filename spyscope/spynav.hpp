@@ -1,6 +1,6 @@
-// spynavigator.hpp
-#ifndef __SPYSCOPE_NAVIGATOR_HPP__
-#define __SPYSCOPE_NAVIGATOR_HPP__
+// SpyNav.hpp
+#ifndef __SPYSCOPE_SPYNAV_HPP__
+#define __SPYSCOPE_SPYNAV_HPP__
 
 #include <wx/wx.h>
 #include <wx/treectrl.h>
@@ -10,23 +10,18 @@
 #include <unordered_set>
 #include <functional>
 
+#include "datasource.hpp"
+#include "app.hpp"
+
 // Forward-declare SpyScope (global namespace) — full definition in app.hpp,
-// included only in spynavigator.cpp to avoid a circular header dependency.
+// included only in SpyNav.cpp to avoid a circular header dependency.
 class SpyScope;
 
 namespace spycat
 {
 
-// Forward-declare DataSource — full definition included in spynavigator.cpp
+// Forward-declare DataSource — full definition included in SpyNav.cpp
 class DataSource;
-
-static const wxColour NAV_BG        { 0xFFFFFF };
-static const wxColour NAV_PRIMARY   { 0x00, 0x66, 0x00 };
-static const wxColour NAV_SEL_BG    { 0xaffc41 };
-static const wxColour NAV_SEL_FG    { 0x000000 };
-static const wxColour NAV_TEXT      { 0x000000 };
-
-static const wxString NAV_GLOBAL_BUCKET = "Global";
 
 // Icon indices — assign assets here when ready
 enum NavIcon
@@ -46,12 +41,12 @@ private:
     wxString key_;
 };
 
-// ── SpyNavigator ──────────────────────────────────────────────────────────────
+// ── SpyNav ──────────────────────────────────────────────────────────────
 
-class SpyNavigator : public wxPanel
+class SpyNav : public wxPanel
 {
 public:
-    SpyNavigator(wxWindow* parent, SpyScope& app, wxWindowID id = wxID_ANY);
+    SpyNav(wxWindow* parent, App& app, wxWindowID id = wxID_ANY);
 
     void Poll();
 
@@ -72,8 +67,9 @@ private:
     void OnItemExpanding(wxTreeEvent& e) { e.Skip(); }
     void OnDataTimer(wxTimerEvent&);
 
+    App&          app_;
+
     wxTreeCtrl*   tree_;
-    DataSource*   source_;
     wxTimer       data_timer_;
 
     // Hidden root — wxTR_HIDE_ROOT makes its children appear top-level
@@ -95,4 +91,4 @@ private:
 
 } // namespace spycat
 
-#endif // __SPYSCOPE_NAVIGATOR_HPP__
+#endif // __SPYSCOPE_SPYNAV_HPP__

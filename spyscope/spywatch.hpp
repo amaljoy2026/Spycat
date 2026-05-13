@@ -9,6 +9,9 @@
 #include <vector>
 #include <functional>
 
+#include "datasource.hpp"
+#include "app.hpp"
+
 // Forward-declare SpyScope (global namespace) — full definition in app.hpp,
 // included only in spywatch.cpp to avoid a circular header dependency.
 class SpyScope;
@@ -64,7 +67,7 @@ struct WatchEntry
 class SpyWatch : public wxScrolledWindow
 {
 public:
-    SpyWatch(wxWindow* parent, SpyScope& app, wxWindowID id = wxID_ANY);
+    SpyWatch(wxWindow* parent, App& app, wxWindowID id = wxID_ANY);
 
     // Refresh all watched keys from DataSource
     void Poll();
@@ -104,7 +107,7 @@ private:
     static constexpr int ROW_H     = 28;
     static constexpr int HEADER_H  = 32;
 
-    DataSource*              source_ = nullptr;
+    App&                     app_;
     wxTimer                  data_timer_;
 
     std::vector<WatchEntry>  entries_;

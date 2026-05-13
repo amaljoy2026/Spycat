@@ -6,8 +6,8 @@
 namespace spycat
 {
 
-DataSource::DataSource(SpyScope& app)
-    : app_(app)
+DataSource::DataSource(const std::string& shmkey)
+    : map_(shmkey)
     , timer_(this)
 {
     Bind(wxEVT_TIMER, &DataSource::OnTimer, this);
@@ -20,12 +20,9 @@ void DataSource::OnTimer(wxTimerEvent&)
 }
 
 void DataSource::Poll()
-{
-    Spymap* spymap = app_.GetSpymap();
-    if (!spymap) return;
-    
+{    
     // Full snapshot from shared memory — one read, fans out to all consumers.
-    std::vector<Spymap::Entry> entries = spymap->snapshot();
+    std::vector<Spymap::Entry> entries = map_.snapshot();
 
     // Rebuild cache — last-write-wins on key collision (shouldn't occur in
     // a well-formed Spymap, but defensive to handle it).
