@@ -106,6 +106,9 @@ public:
     void set(const std::string& key, int32_t            value, int override=0, int64_t timestamp=-1);
     void set(const std::string& key, bool               value, int override=0, int64_t timestamp=-1);
     void set(const std::string& key, const std::string& value, int override=0, int64_t timestamp=-1);
+    // Intercept const char* before overload resolution can pick the bool overload
+    // via the standard const char* → bool pointer conversion.
+    void set(const std::string& key, const char*        value, int override=0, int64_t timestamp=-1);
 
     // ── Read ──────────────────────────────────────────────────────────────
 

@@ -10,6 +10,7 @@
 #include <variant>
 #include <unordered_set>
 #include <limits>
+#include <boost/property_tree/ptree.hpp>
 
 #include "theme.hpp"
 #include "dockpanel.hpp"
@@ -65,7 +66,7 @@ SpyPlot::SpyPlot(wxWindow* parent, App& app, const std::string& key,
     , app_(app)
     , paint_timer_(this)
 {
-    traces_.emplace_back(key, kTracePalette[0]);
+    traces_.emplace_back(key, kTracePalette[color_counter_++ % kPaletteSize]);
     per_trace_lo_.push_back(-1.0);
     per_trace_hi_.push_back( 1.0);
 
@@ -99,7 +100,8 @@ SpyPlot::~SpyPlot()
 void SpyPlot::SetKey(const std::string& key)
 {
     traces_.clear();
-    traces_.emplace_back(key, kTracePalette[0]);
+    color_counter_ = 0;
+    traces_.emplace_back(key, kTracePalette[color_counter_++ % kPaletteSize]);
     per_trace_lo_ = { -1.0 };
     per_trace_hi_ = {  1.0 };
     selected_trace_idx_ = 0;
@@ -110,7 +112,7 @@ void SpyPlot::AddTrace(const std::string& key)
     for (const auto& t : traces_)
         if (t.key == key) return;
 
-    traces_.emplace_back(key, kTracePalette[traces_.size() % kPaletteSize]);
+    traces_.emplace_back(key, kTracePalette[color_counter_++ % kPaletteSize]);
     per_trace_lo_.push_back(-1.0);
     per_trace_hi_.push_back( 1.0);
 
@@ -1035,6 +1037,79 @@ void SpyPlot::OnPaint(wxPaintEvent&)
 
     // Keep marker controls pinned to their data points
     RepositionMarkerControls();
+}
+
+// ── Layout persistence ────────────────────────────────────────────────────────
+
+void SpyPlot::SerializeTo(boost::property_tree::ptree& node) const
+{
+    namespace pt = boost::property_tree;
+
+    // Trace keys — ordered list
+    pt::ptree keys_node;
+    for (const auto& t : traces_) {
+        pt::ptree item;
+        item.put("", t.key);
+        keys_node.push_back({"", item});
+    }
+    node.add_child("keys", keys_node);
+
+    node.put("shared_axis",    shared_axis_);
+    node.put("auto_scale",     auto_scale_);
+    node.put("time_window_s",  time_window_s_);
+    node.put("selected_trace", selected_trace_idx_);
+    node.put("y_lo",           y_lo_);
+    node.put("y_hi",           y_hi_);
+
+    // Per-trace Y ranges (meaningful in non-shared axis mode)
+    pt::ptree ranges_node;
+    for (size_t i = 0; i < per_trace_lo_.size(); ++i) {
+        pt::ptree r;
+        r.put("lo", per_trace_lo_[i]);
+        r.put("hi", per_trace_hi_[i]);
+        ranges_node.push_back({"", r});
+    }
+    node.add_child("per_trace_ranges", ranges_node);
+}
+
+void SpyPlot::DeserializeFrom(const boost::property_tree::ptree& node)
+{
+    namespace pt = boost::property_tree;
+
+    // Rebuild traces from saved key list
+    pt::ptree empty;
+    std::vector<std::string> keys;
+    for (const auto& item : node.get_child("keys", empty))
+        keys.push_back(item.second.get_value<std::string>());
+
+    if (!keys.empty()) {
+        SetKey(keys[0]);
+        for (size_t i = 1; i < keys.size(); ++i)
+            AddTrace(keys[i]);
+    }
+
+    shared_axis_        = node.get<bool>  ("shared_axis",    true);
+    auto_scale_         = node.get<bool>  ("auto_scale",     true);
+    time_window_s_      = node.get<double>("time_window_s",  10.0);
+    selected_trace_idx_ = node.get<size_t>("selected_trace", 0);
+    y_lo_               = node.get<double>("y_lo",           0.0);
+    y_hi_               = node.get<double>("y_hi",           1.0);
+
+    // Per-trace Y ranges
+    per_trace_lo_.clear();
+    per_trace_hi_.clear();
+    for (const auto& item : node.get_child("per_trace_ranges", empty)) {
+        per_trace_lo_.push_back(item.second.get<double>("lo", -1.0));
+        per_trace_hi_.push_back(item.second.get<double>("hi",  1.0));
+    }
+
+    // Ensure vectors stay in sync with traces_ (guard against truncated JSON)
+    per_trace_lo_.resize(traces_.size(), -1.0);
+    per_trace_hi_.resize(traces_.size(),  1.0);
+
+    // Clamp selected_trace_idx_ into range
+    if (!traces_.empty() && selected_trace_idx_ >= traces_.size())
+        selected_trace_idx_ = traces_.size() - 1;
 }
 
 } // namespace spycat

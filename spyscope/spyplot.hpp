@@ -7,6 +7,7 @@
 #include <chrono>
 #include <string>
 #include <boost/circular_buffer.hpp>
+#include <boost/property_tree/ptree.hpp>
 
 #include "datasource.hpp"
 #include "app.hpp"
@@ -52,6 +53,10 @@ public:
     void SetTimeWindow(double seconds) { time_window_s_ = seconds; }
     void SetAutoScale(bool enabled)    { auto_scale_    = enabled;  }
     void SetYRange(double lo, double hi) { y_lo_ = lo; y_hi_ = hi; auto_scale_ = false; }
+
+    // Layout persistence
+    void SerializeTo(boost::property_tree::ptree& node) const;
+    void DeserializeFrom(const boost::property_tree::ptree& node);
 
 private:
     // Coordinate transforms
@@ -167,6 +172,10 @@ private:
     wxPoint  last_drag_pos_;
     double   pan_offset_s_   = 0.0;   // ≤ 0, horizontal pan while paused
     double   frozen_time_s_  = 0.0;   // t_now captured at pause
+
+    // Monotonically increasing — never decremented when a trace is removed.
+    // Ensures that re-adding a trace after removal always gets a fresh colour.
+    size_t   color_counter_  = 0;
 
     wxTimer paint_timer_;
 };

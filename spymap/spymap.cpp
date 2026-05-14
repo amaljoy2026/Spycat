@@ -8,6 +8,15 @@
 namespace bip = boost::interprocess;
 using namespace spycat;
 
+// ── Non-blocking lock policy ──────────────────────────────────────────────────
+//
+// Any interprocess mutex whose owner has crashed is permanently stuck.  A plain
+// sharable_lock/upgradable_lock blocks the calling thread forever in that case.
+// We use bip::try_to_lock throughout: if we cannot acquire the dict mutex
+// immediately we bail out and return empty/default data.  The polling timer
+// fires again in ~17 ms, so one missed tick is imperceptible; and the app
+// remains responsive even if the producer process dies with the mutex held.
+
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 static int64_t now_ns()
@@ -79,7 +88,8 @@ void Spymap::warm_cache()
     std::unique_lock<std::shared_mutex> thread_lock(thread_mutex_);
 
     bip::sharable_lock<bip::interprocess_upgradable_mutex>
-        dict_lock(dict_header()->dict_mutex);
+        dict_lock(dict_header()->dict_mutex, bip::try_to_lock);
+    if (!dict_lock.owns()) return;   // mutex stuck — cache stays empty, find() will be used
 
     const size_t count = dir_count();
     header_cache_.reserve(count);
@@ -124,7 +134,8 @@ void Spymap::set(const char* key, const void* value, size_t size, TypeTag type,
         std::shared_lock<std::shared_mutex> thread_lock(thread_mutex_);
 
         bip::sharable_lock<bip::interprocess_upgradable_mutex>
-            dict_lock(dict_header()->dict_mutex);
+            dict_lock(dict_header()->dict_mutex, bip::try_to_lock);
+        if (!dict_lock.owns()) return;   // mutex stuck — skip this write cycle
 
         // O(1) cache lookup — no shared memory scan
         Header* h = nullptr;
@@ -180,7 +191,8 @@ void Spymap::set(const char* key, const void* value, size_t size, TypeTag type,
 
         // Upgradable excludes other inserters while existing readers continue.
         bip::upgradable_lock<bip::interprocess_upgradable_mutex>
-            up_lock(dict_header()->dict_mutex);
+            up_lock(dict_header()->dict_mutex, bip::try_to_lock);
+        if (!up_lock.owns()) return;   // mutex stuck — skip insert
 
         // TOCTOU re-check — another process may have inserted this key
         // between our fast-path miss and now.
@@ -273,7 +285,11 @@ bool Spymap::get(const char* key, void* buffer, size_t buffer_size)
     std::shared_lock<std::shared_mutex> thread_lock(thread_mutex_);
 
     bip::sharable_lock<bip::interprocess_upgradable_mutex>
-        dict_lock(dict_header()->dict_mutex);
+        dict_lock(dict_header()->dict_mutex, bip::try_to_lock);
+    if (!dict_lock.owns()) {
+        std::memset(buffer, 0, buffer_size);
+        return false;
+    }
 
     Header* h = nullptr;
     auto it = header_cache_.find(key);
@@ -314,7 +330,8 @@ std::vector<Spymap::Entry> Spymap::snapshot() const
     std::shared_lock<std::shared_mutex> thread_lock(thread_mutex_);
 
     bip::sharable_lock<bip::interprocess_upgradable_mutex>
-        dict_lock(dict_header()->dict_mutex);
+        dict_lock(dict_header()->dict_mutex, bip::try_to_lock);
+    if (!dict_lock.owns()) return {};   // mutex stuck — return empty snapshot this tick
 
     const size_t count = dir_count();
     std::vector<Entry> result;
@@ -406,6 +423,14 @@ void Spymap::set(const std::string& key, const std::string& value, int override,
     set(key.c_str(), value.data(), value.size() + 1, TypeTag::String, override, timestamp);
 }
 
+void Spymap::set(const std::string& key, const char* value, int override, int64_t timestamp)
+{
+    // Route through the string overload so const char* literals are never
+    // silently picked up by the bool overload (standard const char*→bool
+    // conversion outranks the user-defined const char*→std::string conversion).
+    set(key, std::string(value ? value : ""), override, timestamp);
+}
+
 // ── Typed get overloads ───────────────────────────────────────────────────────
 
 bool Spymap::get(const std::string& key, void* buffer, size_t buffer_size)
@@ -453,7 +478,8 @@ std::string Spymap::get_string(const std::string& key, const std::string& defaul
     std::shared_lock<std::shared_mutex> thread_lock(thread_mutex_);
 
     bip::sharable_lock<bip::interprocess_upgradable_mutex>
-        dict_lock(dict_header()->dict_mutex);
+        dict_lock(dict_header()->dict_mutex, bip::try_to_lock);
+    if (!dict_lock.owns()) return default_val;
 
     Header* h = nullptr;
     auto it = header_cache_.find(key);

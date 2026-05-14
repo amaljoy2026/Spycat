@@ -3,8 +3,11 @@
 #define __SPYSCOPE_APP_HPP__
 
 #include <wx/wx.h>
+#include <wx/stdpaths.h>
+#include <wx/filename.h>
 #include <vector>
 #include <algorithm>
+#include <string>
 #include "../spymap/spymap.hpp"
 #include "theme.hpp"
 
@@ -38,10 +41,11 @@ class App : public wxApp
 {
 public:
     bool OnInit() override;
-    DataSource* GetDataSource() { return source_; }
-    Theme& GetTheme() { return theme_; }
-    DockPanel *GetDockPanel() { return dockpanel_; }
-    SpyWatch*  GetSpyWatch()  { return watch_; }
+    DataSource*        GetDataSource()  { return source_; }
+    Theme&             GetTheme()       { return theme_; }
+    DockPanel*         GetDockPanel()   { return dockpanel_; }
+    SpyWatch*          GetSpyWatch()    { return watch_; }
+    const std::string& GetSegmentName() const { return segment_name_; }
 
     // Dynamically add a new plot or watch pane to the right dock
     void AddPlotPane(const std::vector<std::string>& keys);
@@ -50,6 +54,11 @@ public:
     // Single-key convenience wrappers
     void AddPlotPane(const std::string& key) { AddPlotPane(std::vector<std::string>{key}); }
     void AddWatchPane(const std::string& key) { AddWatchPane(std::vector<std::string>{key}); }
+
+    // Layout + settings persistence — one file for all session state
+    void SaveLayout(const wxString& path = wxEmptyString);
+    void LoadLayout(const wxString& path = wxEmptyString);
+    wxString DefaultLayoutPath() const;
 
     // Observer registration — panels call these in their constructor/destructor
     void RegisterObserver(DataObserver* observer)
@@ -67,6 +76,15 @@ private:
     wxPanel *CreateTopbar();
     void OnDataTimer(wxTimerEvent&);
 
+    // ── Tracked dynamic pane (plot or watch added after initial layout) ────────
+    struct PaneRecord {
+        std::string name;    // AUI pane name — stable, matches perspective string
+        std::string type;    // "plot" or "watch"
+        wxWindow*   widget;
+    };
+
+    std::string   segment_name_ = "_test_";
+
     DataSource*   source_    = nullptr;
     Theme         theme_;
     DockPanel*    dockpanel_ = nullptr;
@@ -77,6 +95,10 @@ private:
 
     std::vector<DataObserver*> observers_;
     wxTimer                    data_timer_;
+
+    // Dynamic panes created via AddPlotPane / AddWatchPane
+    std::vector<PaneRecord>    panes_;
+    int                        pane_counter_ = 0;
 };
 
 }

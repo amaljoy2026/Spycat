@@ -4,6 +4,7 @@
 
 #include <wx/dnd.h>
 #include <wx/dcbuffer.h>
+#include <boost/property_tree/ptree.hpp>
 #include "dockpanel.hpp"
 
 namespace spycat {
@@ -107,6 +108,53 @@ void SpyDefault::OnPaneClose(wxAuiManagerEvent& e)
     // If a plot is loaded, closing means "clear it"
     if (promoted_)
         Reset();
+}
+
+// ── Layout persistence ────────────────────────────────────────────────────────
+
+SpyPlot* SpyDefault::GetPlot() const
+{
+    if (!promoted_) return nullptr;
+    for (wxWindowList::compatibility_iterator node = GetChildren().GetFirst();
+         node; node = node->GetNext())
+    {
+        if (auto* p = dynamic_cast<SpyPlot*>(node->GetData()))
+            return p;
+    }
+    return nullptr;
+}
+
+void SpyDefault::SerializeTo(boost::property_tree::ptree& node) const
+{
+    SpyPlot* plot = GetPlot();
+    if (plot) plot->SerializeTo(node);
+}
+
+void SpyDefault::DeserializeFrom(const boost::property_tree::ptree& node)
+{
+    if (promoted_) return;
+
+    // Peek at the key list — nothing to do if it's empty
+    boost::property_tree::ptree empty;
+    std::vector<std::string> keys;
+    for (const auto& item : node.get_child("keys", empty))
+        keys.push_back(item.second.get_value<std::string>());
+    if (keys.empty()) return;
+
+    promoted_ = true;
+    SetDropTarget(nullptr);
+
+    auto* plot = new SpyPlot(this, app_, keys[0]);
+    for (size_t i = 1; i < keys.size(); ++i)
+        plot->AddTrace(keys[i]);
+
+    // Restore view state (y range, shared axis, time window, etc.)
+    plot->DeserializeFrom(node);
+
+    auto* sizer = new wxBoxSizer(wxVERTICAL);
+    sizer->Add(plot, 1, wxEXPAND);
+    SetSizerAndFit(sizer);
+    Layout();
 }
 
 // ── Paint ─────────────────────────────────────────────────────────────────────

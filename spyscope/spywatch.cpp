@@ -6,6 +6,7 @@
 #include <sstream>
 #include <iomanip>
 #include <variant>
+#include <boost/property_tree/ptree.hpp>
 
 #include "dockpanel.hpp"
 
@@ -193,7 +194,8 @@ void SpyWatch::AddKey(const std::string& key)
     entry.value = "—";
     entries_.push_back(entry);
     RebuildRows();
-    app_.GetDockPanel()->GetDock().Update();
+    // Defer dock.Update() so it never fires inside an AUI drag or drop callback.
+    CallAfter([this]() { app_.GetDockPanel()->GetDock().Update(); });
 }
 
 void SpyWatch::RemoveKey(const std::string& key)
@@ -320,7 +322,9 @@ void SpyWatch::RebuildRows()
 
     FitInside();
     Refresh();
-    app_.GetDockPanel()->GetDock().Update();
+    // Deferred so dock.Update() never fires re-entrantly inside an AUI drag or
+    // OnSize call — that was the source of the infinite-loop hang.
+    CallAfter([this]() { app_.GetDockPanel()->GetDock().Update(); });
 }
 
 void SpyWatch::BuildHeaderRow(wxGridBagSizer* sizer, const std::array<int,4>& cw)
@@ -818,6 +822,51 @@ void SpyWatch::OnOverrideText(size_t index)
         source->SetOverride(entries_[index].key,
                             entries_[index].override_value,
                             /*priority=*/1);
+}
+
+// ── Layout persistence ────────────────────────────────────────────────────────
+
+void SpyWatch::SerializeTo(boost::property_tree::ptree& node) const
+{
+    namespace pt = boost::property_tree;
+
+    // Watched keys — ordered
+    pt::ptree keys_node;
+    for (const auto& e : entries_) {
+        pt::ptree item;
+        item.put("", e.key);
+        keys_node.push_back({"", item});
+    }
+    node.add_child("keys", keys_node);
+
+    // Column weights — four floats
+    pt::ptree weights_node;
+    for (int i = 0; i < 4; ++i) {
+        pt::ptree item;
+        item.put("", col_weights_[i]);
+        weights_node.push_back({"", item});
+    }
+    node.add_child("col_weights", weights_node);
+}
+
+void SpyWatch::DeserializeFrom(const boost::property_tree::ptree& node)
+{
+    namespace pt = boost::property_tree;
+
+    Clear();   // wipes entries_ and rebuilds (empty) rows
+
+    pt::ptree empty;
+    for (const auto& item : node.get_child("keys", empty))
+        AddKey(item.second.get_value<std::string>());
+
+    int i = 0;
+    for (const auto& item : node.get_child("col_weights", empty)) {
+        if (i < 4) col_weights_[i++] = item.second.get_value<float>();
+    }
+
+    // RebuildRows is called by AddKey; a final explicit rebuild picks up the
+    // restored col_weights_ now that all keys are loaded.
+    RebuildRows();
 }
 
 // ── Resize ────────────────────────────────────────────────────────────────────

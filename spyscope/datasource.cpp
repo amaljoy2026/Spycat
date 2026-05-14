@@ -9,15 +9,7 @@ namespace spycat
 
 DataSource::DataSource(const std::string& shmkey)
     : map_(shmkey)
-    , timer_(this)
 {
-    Bind(wxEVT_TIMER, &DataSource::OnTimer, this);
-    timer_.Start(8);
-}
-
-void DataSource::OnTimer(wxTimerEvent&)
-{
-    Poll();
 }
 
 void DataSource::Poll()

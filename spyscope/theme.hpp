@@ -19,6 +19,7 @@ public:
     wxColour GetAxisColor() { return axis_color_; }
     wxFont GetFont() { return p_font_; }
     wxFont GetBoldFont() { return b_font_; }
+    wxFont GetTitleFont() { return b_title_; }
 
 private:
     wxColour p_highlight_{0xb5, 0xe6, 0x1d};
@@ -33,6 +34,8 @@ private:
     wxFont p_font_{14, wxFONTFAMILY_TELETYPE,
             wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL};
     wxFont b_font_{14, wxFONTFAMILY_TELETYPE,
+            wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD};
+    wxFont b_title_{18, wxFONTFAMILY_TELETYPE,
             wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD};
 };
 

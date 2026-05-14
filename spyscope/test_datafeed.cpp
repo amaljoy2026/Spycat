@@ -3,12 +3,13 @@
 #include <thread>
 #include "../spymap/spymap.hpp"
 #include <iostream>
+
 int main()
 {
     using Clock    = std::chrono::steady_clock;
     using Duration = std::chrono::duration<double>;
 
-    spycat::Spymap m("_test_");
+    spycat::Spymap m("_test01_");
 
     auto     last_write    = Clock::now();
     auto     last_report   = Clock::now();
@@ -32,6 +33,9 @@ int main()
         m.set("rpm",     z);
         m.set("Body.vx", y - z);
         m.set("Body.vy", y + z);
+        m.set("Label", "hello world");
+        m.set("errcnt", 10);
+        m.set("isValid", true);
         // Every 1 second write the average inter-write interval (ms)
         if (Duration(now - last_report).count() >= 1.0) {
             double avg_ms = (interval_count > 0)
@@ -45,6 +49,7 @@ int main()
 
         std::this_thread::sleep_for(std::chrono::milliseconds(3));
     }
+
     return 0;
 }
 

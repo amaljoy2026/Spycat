@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <boost/property_tree/ptree.hpp>
 
 #include "datasource.hpp"
 #include "app.hpp"
@@ -84,6 +85,10 @@ public:
                      const std::string& value);
     std::vector<WatchEntry> GetOverrides() const;
     void Clear();
+
+    // Layout persistence
+    void SerializeTo(boost::property_tree::ptree& node) const;
+    void DeserializeFrom(const boost::property_tree::ptree& node);
 
 private:
     void RebuildRows();

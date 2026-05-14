@@ -47,10 +47,7 @@ public:
     bool IsReady() const { return ready_; }
 
 private:
-    void OnTimer(wxTimerEvent&);
-
     Spymap                                         map_;
-    wxTimer                                        timer_;
     std::unordered_map<std::string, Spymap::Entry> cache_;
     bool                                           ready_ = false;
 };

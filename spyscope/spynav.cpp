@@ -241,7 +241,6 @@ void SpyNav::OnBeginDrag(wxTreeEvent& e)
     // Gather all currently selected items
     wxArrayTreeItemIds selections;
     tree_->GetSelections(selections);
-    tree_->UnselectAll();
 
     // If the dragged item isn't in the selection, treat it as a solo drag
     bool in_selection = false;
@@ -271,7 +270,10 @@ void SpyNav::OnBeginDrag(wxTreeEvent& e)
 
     if (keys.empty()) return;   // nothing draggable selected
 
-    e.Allow();
+    // Do NOT call e.Allow() — that starts the tree's own native drag state
+    // machine, which conflicts with our manual DoDragDrop and leaves the tree
+    // in a half-captured state after the drop completes, eating subsequent
+    // mouse events.
 
     wxString drag_text = wxJoin(keys, '\n');
     wxTextDataObject drag_data(drag_text);

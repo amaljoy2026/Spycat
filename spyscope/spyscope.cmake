@@ -14,6 +14,7 @@ add_executable(spyscope
     ${CMAKE_SOURCE_DIR}/spyscope/datasource.cpp
     ${CMAKE_SOURCE_DIR}/spyscope/dockpanel.cpp
     ${CMAKE_SOURCE_DIR}/spyscope/spydefault.cpp
+    ${CMAKE_SOURCE_DIR}/spyscope/spysettings.cpp
 )
 
 target_include_directories(spyscope PRIVATE 

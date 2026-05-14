@@ -4,9 +4,12 @@
 
 #include <wx/wx.h>
 #include <wx/aui/aui.h>
+#include <boost/property_tree/ptree.hpp>
 #include "app.hpp"
 
 namespace spycat {
+
+class SpyPlot;   // forward declaration — full definition in spyplot.hpp
 
 class SpyDefault : public wxPanel
 {
@@ -18,6 +21,12 @@ public:
 
     // Destroys the child plot and returns to the drop-zone state
     void Reset();
+
+    // Layout persistence
+    bool     IsPromoted() const { return promoted_; }
+    SpyPlot* GetPlot()    const;
+    void SerializeTo  (boost::property_tree::ptree& node)       const;
+    void DeserializeFrom(const boost::property_tree::ptree& node);
 
 private:
     void OnPaint(wxPaintEvent&);
