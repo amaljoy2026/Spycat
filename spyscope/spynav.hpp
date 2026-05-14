@@ -65,6 +65,7 @@ private:
     void OnSelChanged(wxTreeEvent&);
     void OnBeginDrag(wxTreeEvent&);
     void OnItemExpanding(wxTreeEvent& e) { e.Skip(); }
+    void OnItemRightClick(wxTreeEvent&);
     void OnDataTimer(wxTimerEvent&);
 
     App&          app_;

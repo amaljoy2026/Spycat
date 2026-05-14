@@ -8,10 +8,18 @@
 namespace spycat
 {
 
+// Context-menu command IDs
+enum
+{
+    ID_NAV_PLOT  = wxID_HIGHEST + 101,
+    ID_NAV_WATCH = wxID_HIGHEST + 102,
+};
+
 wxBEGIN_EVENT_TABLE(SpyNav, wxPanel)
-    EVT_TREE_SEL_CHANGED(wxID_ANY, SpyNav::OnSelChanged)
-    EVT_TREE_BEGIN_DRAG (wxID_ANY, SpyNav::OnBeginDrag)
-    EVT_TREE_ITEM_EXPANDING(wxID_ANY, SpyNav::OnItemExpanding)
+    EVT_TREE_SEL_CHANGED    (wxID_ANY, SpyNav::OnSelChanged)
+    EVT_TREE_BEGIN_DRAG     (wxID_ANY, SpyNav::OnBeginDrag)
+    EVT_TREE_ITEM_EXPANDING (wxID_ANY, SpyNav::OnItemExpanding)
+    EVT_TREE_ITEM_RIGHT_CLICK(wxID_ANY, SpyNav::OnItemRightClick)
 wxEND_EVENT_TABLE()
 
 // ── Construction ──────────────────────────────────────────────────────────────
@@ -198,7 +206,7 @@ void SpyNav::OnBeginDrag(wxTreeEvent& e)
         // Namespace node — don't allow drag
         return;
     }
-    
+
     // Allow the drag to proceed
     e.Allow();
 
@@ -206,11 +214,39 @@ void SpyNav::OnBeginDrag(wxTreeEvent& e)
     wxTextDataObject drag_data(full_key);
     wxDropSource source(drag_data, tree_);
     wxDragResult result = source.DoDragDrop(wxDrag_CopyOnly);
-    
+
     // Explicitly release internal focus states immediately after execution
     if (this->HasCapture()) {
         this->ReleaseMouse();
     }
+}
+
+void SpyNav::OnItemRightClick(wxTreeEvent& e)
+{
+    wxTreeItemId item = e.GetItem();
+    if (!item.IsOk()) return;
+
+    auto* data = dynamic_cast<TreeData*>(tree_->GetItemData(item));
+    if (!data) return;  // namespace node — no menu
+
+    // Visually select the right-clicked item
+    tree_->SelectItem(item);
+
+    const std::string key = data->GetKey().ToStdString();
+
+    wxMenu menu;
+    menu.Append(ID_NAV_PLOT,  "Plot");
+    menu.Append(ID_NAV_WATCH, "Watch");
+
+    menu.Bind(wxEVT_MENU, [this, key](wxCommandEvent&) {
+        app_.AddPlotPane(key);
+    }, ID_NAV_PLOT);
+
+    menu.Bind(wxEVT_MENU, [this, key](wxCommandEvent&) {
+        app_.AddWatchPane(key);
+    }, ID_NAV_WATCH);
+
+    tree_->PopupMenu(&menu);
 }
 
 } // namespace spycat

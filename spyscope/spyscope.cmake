@@ -12,7 +12,7 @@ add_executable(spyscope
     ${CMAKE_SOURCE_DIR}/spymap/spymap.cpp
     ${CMAKE_SOURCE_DIR}/spyscope/spynav.cpp
     ${CMAKE_SOURCE_DIR}/spyscope/datasource.cpp
-    ${CMAKE_SOURCE_DIR}/spyscope/mainframe.cpp
+    ${CMAKE_SOURCE_DIR}/spyscope/dockpanel.cpp
     ${CMAKE_SOURCE_DIR}/spyscope/spydefault.cpp
 )
 

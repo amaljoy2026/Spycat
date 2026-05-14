@@ -3,6 +3,7 @@
 #define __SPYSCOPE_SPYDEFAULT_HPP__
 
 #include <wx/wx.h>
+#include <wx/aui/aui.h>
 #include "app.hpp"
 
 namespace spycat {
@@ -15,8 +16,12 @@ public:
     // Called by the drop target — promotes this panel to a SpyPlot
     void Promote(const std::string& key);
 
+    // Destroys the child plot and returns to the drop-zone state
+    void Reset();
+
 private:
     void OnPaint(wxPaintEvent&);
+    void OnPaneClose(wxAuiManagerEvent&);
 
     App&  app_;
     bool  promoted_ = false;

@@ -4,7 +4,7 @@
 
 #include <wx/dnd.h>
 #include <wx/dcbuffer.h>
-#include "mainframe.hpp"
+#include "dockpanel.hpp"
 
 namespace spycat {
 
@@ -38,6 +38,9 @@ SpyDefault::SpyDefault(wxWindow* parent, App& app, wxWindowID id)
     Bind(wxEVT_PAINT, &SpyDefault::OnPaint, this);
 
     SetDropTarget(new DefaultDropTarget(this));
+
+    // Intercept AUI pane-close events so SpyDefault can never be closed
+    app_.GetDockPanel()->Bind(wxEVT_AUI_PANE_CLOSE, &SpyDefault::OnPaneClose, this);
 }
 
 // ── Promotion ─────────────────────────────────────────────────────────────────
@@ -56,8 +59,43 @@ void SpyDefault::Promote(const std::string& key)
     auto* sizer = new wxBoxSizer(wxVERTICAL);
     sizer->Add(plot, 1, wxEXPAND);
     SetSizerAndFit(sizer);
-    app_.GetMainFrame()->GetDock().Update();
+    app_.GetDockPanel()->GetDock().Update();
     Layout();
+}
+
+// ── Reset ─────────────────────────────────────────────────────────────────────
+
+void SpyDefault::Reset()
+{
+    promoted_ = false;
+
+    // Destroy the SpyPlot child and remove the sizer
+    DestroyChildren();
+    SetSizer(nullptr);
+
+    // Re-register drop target (was cleared on promotion)
+    SetDropTarget(new DefaultDropTarget(this));
+
+    Refresh();
+    app_.GetDockPanel()->GetDock().Update();
+}
+
+// ── Pane close interception ───────────────────────────────────────────────────
+
+void SpyDefault::OnPaneClose(wxAuiManagerEvent& e)
+{
+    // Only handle our own pane; let all others proceed normally
+    if (e.GetPane()->window != this) {
+        e.Skip();
+        return;
+    }
+
+    // SpyDefault never closes — veto unconditionally
+    e.Veto();
+
+    // If a plot is loaded, closing means "clear it"
+    if (promoted_)
+        Reset();
 }
 
 // ── Paint ─────────────────────────────────────────────────────────────────────

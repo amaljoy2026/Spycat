@@ -13,7 +13,7 @@ namespace spycat
     class SpyNav;
     class SpyPlot;
     class SpyWatch;
-    class MainFrame;
+    class DockPanel;
 }
 
 
@@ -26,11 +26,23 @@ public:
     bool OnInit() override;
     DataSource* GetDataSource() { return source_; }
     Theme& GetTheme() { return theme_; }
-    MainFrame *GetMainFrame() { return frame_; }
+    DockPanel *GetDockPanel() { return dockpanel_; }
+    SpyWatch*  GetSpyWatch()  { return watch_; }
+
+    // Dynamically add a new plot or watch pane to the right dock
+    void AddPlotPane(const std::string& key);
+    void AddWatchPane(const std::string& key);
+
 private:
-    DataSource*   source_  = nullptr;
+    wxPanel *CreateTopbar();
+
+    DataSource*   source_    = nullptr;
     Theme         theme_;
-    MainFrame     *frame_;
+    DockPanel*    dockpanel_ = nullptr;
+    SpyWatch*     watch_     = nullptr;
+    wxPanel*      topbar_    = nullptr;
+    wxFrame*      frame_     = nullptr;
+    wxSizer*      sizer_     = nullptr;
 };
 
 }

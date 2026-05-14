@@ -7,7 +7,7 @@
 #include <iomanip>
 #include <variant>
 
-#include "mainframe.hpp"
+#include "dockpanel.hpp"
 
 namespace spycat
 {
@@ -176,7 +176,7 @@ void SpyWatch::AddKey(const std::string& key)
     entry.value = "—";
     entries_.push_back(entry);
     RebuildRows();
-    app_.GetMainFrame()->GetDock().Update();
+    app_.GetDockPanel()->GetDock().Update();
 }
 
 void SpyWatch::RemoveKey(const std::string& key)
