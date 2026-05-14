@@ -9,6 +9,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <functional>
+#include <algorithm>
+#include <cctype>
 
 #include "datasource.hpp"
 #include "app.hpp"
@@ -60,12 +62,17 @@ private:
     wxTreeItemId GetOrCreateNode(const wxString& path);
     void         InsertKey(const std::string& key);
 
+    // Search
+    void ApplySearch();
+
     // Events
     void OnSelChanged(wxTreeEvent&);
     void OnBeginDrag(wxTreeEvent&);
     void OnItemExpanding(wxTreeEvent& e) { e.Skip(); }
     void OnItemRightClick(wxTreeEvent&);
     void OnDataTimer(wxTimerEvent&);
+    void OnSearchText(wxCommandEvent&);
+    void OnSearchButton(wxCommandEvent&);
 
     App&          app_;
 
@@ -84,7 +91,9 @@ private:
 
     wxImageList* image_list_ = nullptr;
 
-    wxFont font_mono_;
+    wxFont        font_mono_;
+    wxTextCtrl*   search_ctrl_ = nullptr;
+    wxBitmapButton* search_btn_ = nullptr;
 
     wxDECLARE_EVENT_TABLE();
 };

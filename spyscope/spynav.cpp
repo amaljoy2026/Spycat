@@ -1,11 +1,13 @@
 // SpyNav.cpp
 #include "spynav.hpp"
 #include "namespace_icon.h"
+#include "search_icon.h"
 
 #include <wx/sizer.h>
 #include <wx/imaglist.h>
 #include <wx/dnd.h>
 #include <wx/mstream.h>
+#include <wx/bmpbuttn.h>
 
 namespace spycat
 {
@@ -61,12 +63,41 @@ SpyNav::SpyNav(wxWindow* parent, App& app, wxWindowID id)
 
     tree_->AssignImageList(image_list_);   // tree takes ownership
     image_list_ = nullptr;
-    
+
     // Hidden root
     root_ = tree_->AddRoot("__root__");
 
+    // ── Search bar ────────────────────────────────────────────────────────
+    search_ctrl_ = new wxTextCtrl(this, wxID_ANY, wxEmptyString,
+                                  wxDefaultPosition, wxDefaultSize,
+                                  wxTE_PROCESS_ENTER | wxBORDER_SIMPLE);
+    search_ctrl_->SetBackgroundColour(app_.GetTheme().GetPrimaryBackgroundColor());
+    search_ctrl_->SetForegroundColour(app_.GetTheme().GetPrimaryTextColor());
+    search_ctrl_->SetFont(app_.GetTheme().GetFont());
+    search_ctrl_->SetHint("Search...");
+
+    // Load search icon from embedded PNG
+    {
+        wxMemoryInputStream stream(kSearchIconPng, kSearchIconPngSize);
+        wxImage img(stream, wxBITMAP_TYPE_PNG);
+        search_btn_ = new wxBitmapButton(this, wxID_ANY, wxBitmap(img),
+                                         wxDefaultPosition, wxSize(28, 28),
+                                         wxBORDER_NONE);
+    }
+    search_btn_->SetBackgroundColour(app_.GetTheme().GetPrimaryBackgroundColor());
+    search_btn_->SetToolTip("Search");
+
+    search_ctrl_->Bind(wxEVT_TEXT,       &SpyNav::OnSearchText,   this);
+    search_ctrl_->Bind(wxEVT_TEXT_ENTER, &SpyNav::OnSearchButton, this);
+    search_btn_->Bind (wxEVT_BUTTON,     &SpyNav::OnSearchButton, this);
+
+    auto* search_row = new wxBoxSizer(wxHORIZONTAL);
+    search_row->Add(search_ctrl_, 1, wxALIGN_CENTER_VERTICAL | wxALL, 2);
+    search_row->Add(search_btn_,  0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 2);
+
     auto* sizer = new wxBoxSizer(wxVERTICAL);
-    sizer->Add(tree_, 1, wxEXPAND);
+    sizer->Add(search_row, 0, wxEXPAND);
+    sizer->Add(tree_,      1, wxEXPAND);
     SetSizer(sizer);
 }
 
@@ -200,6 +231,34 @@ void SpyNav::OnBeginDrag(wxTreeEvent& e)
     // Explicitly release internal focus states immediately after execution
     if (this->HasCapture()) {
         this->ReleaseMouse();
+    }
+}
+
+void SpyNav::OnSearchText(wxCommandEvent&)   { ApplySearch(); }
+void SpyNav::OnSearchButton(wxCommandEvent&) { ApplySearch(); }
+
+void SpyNav::ApplySearch()
+{
+    // Build lowercase query
+    std::string query = search_ctrl_->GetValue().ToStdString();
+    std::transform(query.begin(), query.end(), query.begin(),
+                   [](unsigned char c){ return std::tolower(c); });
+
+    // Rebuild the visible tree from known_cache_
+    tree_->DeleteAllItems();
+    node_cache_.clear();
+    root_ = tree_->AddRoot("__root__");
+
+    for (const auto& key : known_cache_) {
+        if (!query.empty()) {
+            // Case-insensitive substring match against full dotted key
+            std::string lower_key = key;
+            std::transform(lower_key.begin(), lower_key.end(), lower_key.begin(),
+                           [](unsigned char c){ return std::tolower(c); });
+            if (lower_key.find(query) == std::string::npos)
+                continue;
+        }
+        InsertKey(key);
     }
 }
 
