@@ -228,18 +228,24 @@ void SpyWatch::RebuildRows()
 {
     inner_->DestroyChildren();
     row_widgets_.clear();
+    sizer_ = nullptr;
 
-    sizer_ = new wxGridBagSizer(0, 0);
-    sizer_->SetEmptyCellSize({ 0, 0 });
+    if (portrait_) {
+        auto* flex = new wxFlexGridSizer(0, 2, 0, 0);
+        flex->AddGrowableCol(1);
+        BuildPortraitRows(flex);
+        inner_->SetSizerAndFit(flex);
+    } else {
+        sizer_ = new wxGridBagSizer(0, 0);
+        sizer_->SetEmptyCellSize({ 0, 0 });
+        BuildHeaderRow(sizer_);
+        for (size_t i = 0; i < entries_.size(); ++i)
+            row_widgets_.push_back(
+                BuildDataRow(sizer_, static_cast<int>(i) + 1, entries_[i]));
+        sizer_->AddGrowableCol(COL_KEY);
+        inner_->SetSizerAndFit(sizer_);
+    }
 
-    BuildHeaderRow(sizer_);
-
-    for (size_t i = 0; i < entries_.size(); ++i)
-        row_widgets_.push_back(
-            BuildDataRow(sizer_, static_cast<int>(i) + 1, entries_[i]));
-
-    sizer_->AddGrowableCol(COL_KEY);
-    inner_->SetSizerAndFit(sizer_);
     FitInside();
     Refresh();
 }
@@ -384,6 +390,144 @@ SpyWatch::RowWidgets SpyWatch::BuildDataRow(wxGridBagSizer* sizer,
     return rw;
 }
 
+// ── Portrait layout ───────────────────────────────────────────────────────────
+
+void SpyWatch::BuildPortraitRows(wxSizer* flex)
+{
+    // Helper: make a left-column label cell
+    auto make_label = [&](const wxString& text, const wxColour& bg,
+                          bool header, int height) -> wxPanel*
+    {
+        wxPanel* cell = new wxPanel(inner_, wxID_ANY,
+                                    wxDefaultPosition, wxSize(80, height));
+        cell->SetBackgroundColour(bg);
+
+        wxStaticText* lbl = new wxStaticText(cell, wxID_ANY, text);
+        lbl->SetFont(header ? app_.GetTheme().GetBoldFont()
+                             : app_.GetTheme().GetFont());
+        lbl->SetForegroundColour(header ? app_.GetTheme().GetHighlightTextColor()
+                                        : app_.GetTheme().GetPrimaryTextColor());
+
+        auto* s = new wxBoxSizer(wxHORIZONTAL);
+        s->AddSpacer(8);
+        s->Add(lbl, 1, wxALIGN_CENTER_VERTICAL);
+        cell->SetSizer(s);
+        return cell;
+    };
+
+    for (size_t i = 0; i < entries_.size(); ++i) {
+        WatchEntry& entry = entries_[i];
+        RowWidgets   rw;
+
+        const wxColour bg     = (i % 2 == 0)
+                                ? app_.GetTheme().GetPrimaryBackgroundColor()
+                                : app_.GetTheme().GetAltBackgroundColor();
+        const wxColour hdr_bg = app_.GetTheme().GetHighlightColor();
+        const wxColour hdr_fg = app_.GetTheme().GetHighlightTextColor();
+
+        // ── Key row — header style ────────────────────────────────────────
+        flex->Add(make_label("Key", hdr_bg, true, HEADER_H), 0, wxEXPAND);
+        {
+            wxPanel* cell = new wxPanel(inner_, wxID_ANY,
+                                         wxDefaultPosition, wxSize(-1, HEADER_H));
+            cell->SetBackgroundColour(hdr_bg);
+            rw.key_label = new wxStaticText(cell, wxID_ANY,
+                                             wxString::FromUTF8(entry.key),
+                                             wxDefaultPosition, wxDefaultSize,
+                                             wxST_ELLIPSIZE_END);
+            rw.key_label->SetFont(app_.GetTheme().GetBoldFont());
+            rw.key_label->SetForegroundColour(hdr_fg);
+            auto* s = new wxBoxSizer(wxHORIZONTAL);
+            s->AddSpacer(8);
+            s->Add(rw.key_label, 1, wxALIGN_CENTER_VERTICAL);
+            cell->SetSizer(s);
+            flex->Add(cell, 0, wxEXPAND);
+        }
+
+        // ── Type row ─────────────────────────────────────────────────────
+        flex->Add(make_label("Type", bg, false, ROW_H), 0, wxEXPAND);
+        {
+            wxPanel* cell = new wxPanel(inner_, wxID_ANY,
+                                         wxDefaultPosition, wxSize(-1, ROW_H));
+            cell->SetBackgroundColour(bg);
+            rw.type_label = new wxStaticText(cell, wxID_ANY,
+                                              wxString::FromUTF8(entry.type));
+            rw.type_label->SetFont(app_.GetTheme().GetFont());
+            rw.type_label->SetForegroundColour(app_.GetTheme().GetPrimaryTextColor());
+            auto* s = new wxBoxSizer(wxHORIZONTAL);
+            s->AddSpacer(8);
+            s->Add(rw.type_label, 1, wxALIGN_CENTER_VERTICAL);
+            cell->SetSizer(s);
+            flex->Add(cell, 0, wxEXPAND);
+        }
+
+        // ── Value row ─────────────────────────────────────────────────────
+        flex->Add(make_label("Value", bg, false, ROW_H), 0, wxEXPAND);
+        {
+            wxPanel* cell = new wxPanel(inner_, wxID_ANY,
+                                         wxDefaultPosition, wxSize(-1, ROW_H));
+            cell->SetBackgroundColour(bg);
+            rw.value_label = new wxStaticText(cell, wxID_ANY,
+                                               wxString::FromUTF8(entry.value),
+                                               wxDefaultPosition, wxDefaultSize,
+                                               wxST_ELLIPSIZE_END);
+            rw.value_label->SetFont(app_.GetTheme().GetFont());
+            rw.value_label->SetForegroundColour(
+                entry.override_active ? app_.GetTheme().GetHighlightColor()
+                                      : app_.GetTheme().GetPrimaryTextColor());
+            auto* s = new wxBoxSizer(wxHORIZONTAL);
+            s->AddSpacer(8);
+            s->Add(rw.value_label, 1, wxALIGN_CENTER_VERTICAL);
+            cell->SetSizer(s);
+            flex->Add(cell, 0, wxEXPAND);
+        }
+
+        // ── Override row ──────────────────────────────────────────────────
+        flex->Add(make_label("Override", bg, false, ROW_H), 0, wxEXPAND);
+        {
+            wxPanel* cell = new wxPanel(inner_, wxID_ANY,
+                                         wxDefaultPosition, wxSize(-1, ROW_H));
+            cell->SetBackgroundColour(bg);
+
+            size_t idx = i;
+            rw.ovr_toggle = new ToggleBox(cell, bg, [this, idx](bool checked) {
+                OnOverrideToggle(checked, idx);
+            });
+            rw.ovr_toggle->SetChecked(entry.override_active);
+
+            wxPanel* border = new wxPanel(cell, wxID_ANY,
+                                           wxDefaultPosition, wxSize(122, ROW_H - 6));
+            border->SetBackgroundColour(WATCH_PRIMARY);
+            rw.ovr_field = new wxTextCtrl(border, wxID_ANY,
+                                           wxString::FromUTF8(entry.override_value),
+                                           wxPoint(1, 1), wxSize(120, ROW_H - 8),
+                                           wxTE_PROCESS_ENTER | wxNO_BORDER);
+            rw.ovr_field->SetFont(app_.GetTheme().GetFont());
+            rw.ovr_field->SetBackgroundColour(app_.GetTheme().GetPrimaryBackgroundColor());
+            rw.ovr_field->SetForegroundColour(app_.GetTheme().GetPrimaryTextColor());
+            rw.ovr_field->Enable(entry.override_active);
+
+            rw.ovr_field->Bind(wxEVT_TEXT_ENTER, [this, idx](wxCommandEvent&) {
+                OnOverrideText(idx);
+            });
+            rw.ovr_field->Bind(wxEVT_KILL_FOCUS, [this, idx](wxFocusEvent& fe) {
+                OnOverrideText(idx); fe.Skip();
+            });
+
+            auto* s = new wxBoxSizer(wxHORIZONTAL);
+            s->AddSpacer(8);
+            s->Add(rw.ovr_toggle, 0, wxALIGN_CENTER_VERTICAL);
+            s->AddSpacer(8);
+            s->Add(border, 0, wxALIGN_CENTER_VERTICAL);
+            s->AddSpacer(6);
+            cell->SetSizer(s);
+            flex->Add(cell, 0, wxEXPAND);
+        }
+
+        row_widgets_.push_back(rw);
+    }
+}
+
 // ── Override callbacks ────────────────────────────────────────────────────────
 
 void SpyWatch::OnOverrideToggle(bool checked, size_t index)
@@ -415,8 +559,16 @@ void SpyWatch::OnOverrideText(size_t index)
 
 void SpyWatch::OnSize(wxSizeEvent& e)
 {
-    if (inner_ && sizer_) {
-        inner_->SetSize(GetClientSize().x, inner_->GetSize().y);
+    wxSize sz = GetClientSize();
+    bool is_portrait = sz.y > sz.x;
+
+    if (is_portrait != portrait_) {
+        portrait_ = is_portrait;
+        RebuildRows();
+    }
+
+    if (inner_) {
+        inner_->SetSize(sz.x, inner_->GetSize().y);
         FitInside();
     }
     e.Skip();

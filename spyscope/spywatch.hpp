@@ -96,6 +96,7 @@ private:
 
     void       BuildHeaderRow(wxGridBagSizer* sizer);
     RowWidgets BuildDataRow(wxGridBagSizer* sizer, int row, WatchEntry& entry);
+    void       BuildPortraitRows(wxSizer* sizer);
 
     void OnOverrideToggle(bool checked, size_t index);
     void OnOverrideText(size_t index);
@@ -109,6 +110,7 @@ private:
 
     App&                     app_;
     wxTimer                  data_timer_;
+    bool                     portrait_ = false;
 
     std::vector<WatchEntry>  entries_;
     std::vector<RowWidgets>  row_widgets_;

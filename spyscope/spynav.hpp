@@ -27,7 +27,6 @@ class DataSource;
 enum NavIcon
 {
     NAV_ICON_NAMESPACE = 0,
-    NAV_ICON_LEAF      = 1,
     NAV_ICON_COUNT
 };
 

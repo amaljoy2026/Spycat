@@ -1,9 +1,11 @@
 // SpyNav.cpp
 #include "spynav.hpp"
+#include "namespace_icon.h"
 
 #include <wx/sizer.h>
 #include <wx/imaglist.h>
 #include <wx/dnd.h>
+#include <wx/mstream.h>
 
 namespace spycat
 {
@@ -46,33 +48,15 @@ SpyNav::SpyNav(wxWindow* parent, App& app, wxWindowID id)
     tree_->SetForegroundColour(app_.GetTheme().GetPrimaryTextColor());
     tree_->SetFont(app_.GetTheme().GetFont());
 
-    // ── Image list — placeholder bitmaps, swap for real assets later ──────
+    // ── Image list ────────────────────────────────────────────────────────
     image_list_ = new wxImageList(16, 16, true, NAV_ICON_COUNT);
 
-    // NAV_ICON_NAMESPACE — filled green square (folder placeholder)
+    // NAV_ICON_NAMESPACE — load embedded PNG, scale to 16×16
     {
-        wxBitmap bmp(16, 16);
-        wxMemoryDC dc(bmp);
-        dc.SetBackground(wxBrush(app_.GetTheme().GetPrimaryBackgroundColor()));
-        dc.Clear();
-        dc.SetBrush(wxBrush(app_.GetTheme().GetHighlightColor()));
-        dc.SetPen(*wxTRANSPARENT_PEN);
-        dc.DrawRectangle(2, 4, 12, 9);   // simple folder-ish rectangle
-        dc.SelectObject(wxNullBitmap);
-        image_list_->Add(bmp);
-    }
-
-    // NAV_ICON_LEAF — small green circle (signal placeholder)
-    {
-        wxBitmap bmp(16, 16);
-        wxMemoryDC dc(bmp);
-        dc.SetBackground(wxBrush(app_.GetTheme().GetPrimaryBackgroundColor()));
-        dc.Clear();
-        dc.SetBrush(wxBrush(app_.GetTheme().GetHighlightColor()));
-        dc.SetPen(*wxTRANSPARENT_PEN);
-        dc.DrawCircle(8, 8, 4);
-        dc.SelectObject(wxNullBitmap);
-        image_list_->Add(bmp);
+        wxMemoryInputStream stream(kNamespaceIconPng, kNamespaceIconPngSize);
+        wxImage img(stream, wxBITMAP_TYPE_PNG);
+        img.Rescale(16, 16, wxIMAGE_QUALITY_HIGH);
+        image_list_->Add(wxBitmap(img));
     }
 
     tree_->AssignImageList(image_list_);   // tree takes ownership
@@ -161,9 +145,7 @@ void SpyNav::InsertKey(const std::string& key)
         parent           = GetOrCreateNode(ns_path);
     }
 
-    wxTreeItemId leaf = tree_->AppendItem(parent, leaf_name,
-                                          NAV_ICON_LEAF,
-                                          NAV_ICON_LEAF);
+    wxTreeItemId leaf = tree_->AppendItem(parent, leaf_name, -1, -1);
 
     // Store the full dotted key in item data for drag and selection
     tree_->SetItemData(leaf, new TreeData(wx_key));
