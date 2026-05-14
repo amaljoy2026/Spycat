@@ -72,17 +72,20 @@ bool App::OnInit()
     // Pre-read segment_name_ from layout.json before opening shared memory.
     // The full LoadLayout() is deferred via CallAfter (needs a live frame),
     // but we need the correct segment name right now.
+    int win_w = 1024, win_h = 768;
     if (wxFileExists(DefaultLayoutPath())) {
         try {
             pt::ptree root;
             pt::read_json(DefaultLayoutPath().ToStdString(), root);
             segment_name_ = root.get<std::string>("segment_name", segment_name_);
+            win_w = root.get<int>("window_width",  win_w);
+            win_h = root.get<int>("window_height", win_h);
         } catch (...) {}
     }
 
     source_ = new DataSource(segment_name_);
 
-    frame_ = new wxFrame(nullptr, wxID_ANY, "Spycat", wxDefaultPosition, wxSize(1024, 768));
+    frame_ = new wxFrame(nullptr, wxID_ANY, "Spycat", wxDefaultPosition, wxSize(win_w, win_h));
     frame_->SetBackgroundColour(GetTheme().GetSecondaryBackgroundColor());
     
     topbar_ = CreateTopbar();
@@ -238,6 +241,8 @@ void App::SaveLayout(const wxString& path)
         pt::ptree root;
         root.put("version", 1);
         root.put("segment_name", segment_name_);
+        root.put("window_width",  frame_->GetSize().x);
+        root.put("window_height", frame_->GetSize().y);
         root.put("perspective", dock.SavePerspective().ToStdString());
 
         pt::ptree panes_node;
