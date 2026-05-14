@@ -213,37 +213,63 @@ void SpyNav::OnSelChanged(wxTreeEvent& e)
     e.Skip();
 }
 
+// Recursively walk the visible tree from `item`, appending every leaf key to `out`.
+// Namespace nodes (no TreeData) are descended into; leaves are collected directly.
+void SpyNav::CollectLeafKeys(wxTreeItemId item, wxArrayString& out) const
+{
+    auto* d = dynamic_cast<TreeData*>(tree_->GetItemData(item));
+    if (d) {
+        // Leaf node — add key and stop
+        out.Add(d->GetKey());
+        return;
+    }
+
+    // Namespace node — recurse into all visible children
+    wxTreeItemIdValue cookie;
+    wxTreeItemId child = tree_->GetFirstChild(item, cookie);
+    while (child.IsOk()) {
+        CollectLeafKeys(child, out);
+        child = tree_->GetNextChild(item, cookie);
+    }
+}
+
 void SpyNav::OnBeginDrag(wxTreeEvent& e)
 {
-    e.Skip();
-
     wxTreeItemId dragged = e.GetItem();
     if (!dragged.IsOk()) return;
 
-    // Gather all currently selected leaf keys
+    // Gather all currently selected items
     wxArrayTreeItemIds selections;
     tree_->GetSelections(selections);
     tree_->UnselectAll();
 
-    // Check whether the dragged item is part of the selection
+    // If the dragged item isn't in the selection, treat it as a solo drag
     bool in_selection = false;
     for (const auto& sel : selections)
         if (sel == dragged) { in_selection = true; break; }
 
+    // Collect keys, de-duplicating via an unordered_set
+    std::unordered_set<std::string> seen;
     wxArrayString keys;
 
-    if (in_selection && selections.size() > 1) {
-        // Multi-drag: collect every selected leaf (skip namespace nodes)
-        for (const auto& sel : selections) {
-            auto* d = dynamic_cast<TreeData*>(tree_->GetItemData(sel));
-            if (d) keys.Add(d->GetKey());
+    auto add_item = [&](wxTreeItemId item) {
+        wxArrayString item_keys;
+        CollectLeafKeys(item, item_keys);
+        for (const auto& k : item_keys) {
+            std::string ks = k.ToStdString();
+            if (seen.insert(ks).second)
+                keys.Add(k);
         }
+    };
+
+    if (in_selection && selections.size() > 1) {
+        for (const auto& sel : selections)
+            add_item(sel);
     } else {
-        // Single-drag: just the item under the cursor
-        auto* d = dynamic_cast<TreeData*>(tree_->GetItemData(dragged));
-        if (!d) return;   // namespace node — don't allow drag
-        keys.Add(d->GetKey());
+        add_item(dragged);
     }
+
+    if (keys.empty()) return;   // nothing draggable selected
 
     e.Allow();
 

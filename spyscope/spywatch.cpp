@@ -291,6 +291,7 @@ void SpyWatch::RebuildRows()
 
     FitInside();
     Refresh();
+    app_.GetDockPanel()->GetDock().Update();
 }
 
 void SpyWatch::BuildHeaderRow(wxGridBagSizer* sizer)
@@ -643,20 +644,45 @@ void SpyWatch::OnOverrideToggle(bool checked, size_t index)
     row_widgets_[index].value_label->SetForegroundColour(
         checked ? app_.GetTheme().GetHighlightColor() : app_.GetTheme().GetPrimaryTextColor());
 
+    DataSource* source = app_.GetDataSource();
+
     if (checked) {
         // Seed field with current live value if empty
         if (entries_[index].override_value.empty())
             row_widgets_[index].ovr_field->SetValue(
                 wxString::FromUTF8(entries_[index].value));
         row_widgets_[index].ovr_field->SetFocus();
+
+        // Assert override — write current field value at priority 1
+        entries_[index].override_value =
+            row_widgets_[index].ovr_field->GetValue().ToStdString();
+        if (source)
+            source->SetOverride(entries_[index].key,
+                                entries_[index].override_value,
+                                /*priority=*/1);
+    } else {
+        // Clear override — priority -1 lets the producer win again
+        if (source)
+            source->SetOverride(entries_[index].key,
+                                entries_[index].override_value,
+                                /*priority=*/-1);
     }
 }
 
 void SpyWatch::OnOverrideText(size_t index)
 {
     if (index >= entries_.size()) return;
+    if (!entries_[index].override_active) return;   // field is disabled; ignore
+
     entries_[index].override_value =
         row_widgets_[index].ovr_field->GetValue().ToStdString();
+
+    // Reassert with new value
+    DataSource* source = app_.GetDataSource();
+    if (source)
+        source->SetOverride(entries_[index].key,
+                            entries_[index].override_value,
+                            /*priority=*/1);
 }
 
 // ── Resize ────────────────────────────────────────────────────────────────────

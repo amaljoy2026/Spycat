@@ -64,6 +64,10 @@ private:
     wxTreeItemId GetOrCreateNode(const wxString& path);
     void         InsertKey(const std::string& key);
 
+    // Drag helpers
+    // Recursively collect all visible leaf keys under a tree item into out.
+    void CollectLeafKeys(wxTreeItemId item, wxArrayString& out) const;
+
     // Search
     void ApplySearch();
 

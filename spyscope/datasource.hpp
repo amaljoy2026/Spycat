@@ -35,6 +35,14 @@ public:
     // Flat sorted key list — convenience for Navigator tree building.
     std::vector<std::string> GetKeys() const;
 
+    // Write an override into shared memory.
+    // priority=1  → asserts the value over normal producer writes (priority 0).
+    // priority=-1 → clears the override; producer's next write wins again.
+    // The string value is parsed to match the key's current type in cache.
+    void SetOverride(const std::string& key,
+                     const std::string& value,
+                     int                priority);
+
     // True if the cache has been populated by at least one Poll().
     bool IsReady() const { return ready_; }
 
