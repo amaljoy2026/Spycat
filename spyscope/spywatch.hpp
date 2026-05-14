@@ -64,13 +64,15 @@ struct WatchEntry
 };
 
 // ── SpyWatch ──────────────────────────────────────────────────────────────────
-class SpyWatch : public wxScrolledWindow
+class SpyWatch : public wxScrolledWindow, public DataObserver
 {
 public:
     SpyWatch(wxWindow* parent, App& app, wxWindowID id = wxID_ANY);
+    ~SpyWatch() override;
 
     // Refresh all watched keys from DataSource
     void Poll();
+    void OnDataPoll() override;
 
     void AddKey(const std::string& key);
     void RemoveKey(const std::string& key);
@@ -81,7 +83,6 @@ public:
     void Clear();
 
 private:
-    void OnDataTimer(wxTimerEvent&);
     void RebuildRows();
     void OnSize(wxSizeEvent&);
 
@@ -109,7 +110,6 @@ private:
     static constexpr int HEADER_H  = 32;
 
     App&                     app_;
-    wxTimer                  data_timer_;
     bool                     portrait_ = false;
 
     std::vector<WatchEntry>  entries_;

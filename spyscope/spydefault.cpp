@@ -45,7 +45,7 @@ SpyDefault::SpyDefault(wxWindow* parent, App& app, wxWindowID id)
 
 // ── Promotion ─────────────────────────────────────────────────────────────────
 
-void SpyDefault::Promote(const std::string& key)
+void SpyDefault::Promote(const std::string& text)
 {
     if (promoted_) return;
     promoted_ = true;
@@ -53,8 +53,19 @@ void SpyDefault::Promote(const std::string& key)
     // Detach our drop target — SpyPlot will install its own
     SetDropTarget(nullptr);
 
-    // Create the plot as a child that fills this panel
-    auto* plot = new SpyPlot(this, app_, key);
+    // Split \n-joined multi-key payload; first key seeds the plot
+    wxArrayString keys = wxSplit(wxString::FromUTF8(text), '\n');
+
+    std::string first_key;
+    for (const auto& k : keys)
+        if (!k.IsEmpty()) { first_key = k.ToStdString(); break; }
+
+    if (first_key.empty()) { promoted_ = false; SetDropTarget(new DefaultDropTarget(this)); return; }
+
+    auto* plot = new SpyPlot(this, app_, first_key);
+    for (const auto& k : keys)
+        if (!k.IsEmpty() && k.ToStdString() != first_key)
+            plot->AddTrace(k.ToStdString());
 
     auto* sizer = new wxBoxSizer(wxVERTICAL);
     sizer->Add(plot, 1, wxEXPAND);

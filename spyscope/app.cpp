@@ -47,18 +47,19 @@ bool App::OnInit()
     wxAuiManager& dock = dockpanel_->GetDock();
     // All content panels are created with SpyDock as parent —
     // SpyDockPane::Reparent fixes up the hierarchy when AddContent is called.
-    dock.AddPane(new SpyNav(dockpanel_, *this), wxAuiPaneInfo()
-        .Caption("Navigator")
-        .CloseButton(false)
-        .MinSize({100, -1})
-        .Left()
-    );
     watch_ = new SpyWatch(dockpanel_, *this);
     dock.AddPane(watch_, wxAuiPaneInfo()
         .Caption("Watch")
         .CloseButton(true)
-        .MinSize({-1, 100})
+        .MinSize({-1, 220})
         .Bottom()
+    );
+    dock.AddPane(new SpyNav(dockpanel_, *this), wxAuiPaneInfo()
+        .Caption("Navigator")
+        .CloseButton(false)
+        .MinSize({180, -1})
+        .Left()
+        .Layer(1)   // outer layer — spans full height beside the bottom dock
     );
     dock.AddPane(new SpyDefault(dockpanel_, *this), wxAuiPaneInfo()
         .Caption("")
@@ -69,20 +70,39 @@ bool App::OnInit()
 
     dock.Update();
     frame_->Show();
+
+    // Master data poll timer — all registered DataObservers are notified each tick
+    data_timer_.Bind(wxEVT_TIMER, &App::OnDataTimer, this);
+    data_timer_.Start(8);    // ~120 Hz requested — compensates for macOS timer coalescing
+
     return true;
 }
 
-void App::AddPlotPane(const std::string& key)
+void App::OnDataTimer(wxTimerEvent&)
 {
+    for (auto* obs : observers_)
+        obs->OnDataPoll();
+}
+
+void App::AddPlotPane(const std::vector<std::string>& keys)
+{
+    if (keys.empty()) return;
     wxAuiManager& dock = dockpanel_->GetDock();
 
-    // Use only the leaf name (after the last '.') as the caption
-    wxString caption = wxString::FromUTF8(key);
-    int dot = caption.Find('.', /*fromEnd=*/true);
-    if (dot != wxNOT_FOUND)
-        caption = caption.Mid(dot + 1);
+    // Single key → leaf name caption; multiple → generic "Plot"
+    wxString caption;
+    if (keys.size() == 1) {
+        caption = wxString::FromUTF8(keys[0]);
+        int dot = caption.Find('.', /*fromEnd=*/true);
+        if (dot != wxNOT_FOUND) caption = caption.Mid(dot + 1);
+    } else {
+        caption = "Plot";
+    }
 
-    SpyPlot* plot = new SpyPlot(dockpanel_, *this, key);
+    SpyPlot* plot = new SpyPlot(dockpanel_, *this, keys[0]);
+    for (size_t i = 1; i < keys.size(); ++i)
+        plot->AddTrace(keys[i]);
+
     dock.AddPane(plot, wxAuiPaneInfo()
         .Caption(caption)
         .CloseButton(true)
@@ -94,17 +114,24 @@ void App::AddPlotPane(const std::string& key)
     dock.Update();
 }
 
-void App::AddWatchPane(const std::string& key)
+void App::AddWatchPane(const std::vector<std::string>& keys)
 {
+    if (keys.empty()) return;
     wxAuiManager& dock = dockpanel_->GetDock();
 
-    wxString caption = wxString::FromUTF8(key);
-    int dot = caption.Find('.', /*fromEnd=*/true);
-    if (dot != wxNOT_FOUND)
-        caption = caption.Mid(dot + 1);
+    wxString caption;
+    if (keys.size() == 1) {
+        caption = wxString::FromUTF8(keys[0]);
+        int dot = caption.Find('.', /*fromEnd=*/true);
+        if (dot != wxNOT_FOUND) caption = caption.Mid(dot + 1);
+    } else {
+        caption = "Watch";
+    }
 
     SpyWatch* watch = new SpyWatch(dockpanel_, *this);
-    watch->AddKey(key);
+    for (const auto& key : keys)
+        watch->AddKey(key);
+
     dock.AddPane(watch, wxAuiPaneInfo()
         .Caption(caption)
         .CloseButton(true)

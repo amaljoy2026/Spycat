@@ -31,19 +31,18 @@ wxEND_EVENT_TABLE()
 SpyNav::SpyNav(wxWindow* parent, App& app, wxWindowID id)
     : wxPanel(parent, id)
     , app_(app)
-    , data_timer_(this)
 {
-    Bind(wxEVT_TIMER, &SpyNav::OnDataTimer, this, data_timer_.GetId());
-    data_timer_.Start(17);   // ~60 Hz
+    app_.RegisterObserver(this);
 
     SetBackgroundColour(app_.GetTheme().GetPrimaryBackgroundColor());
 
     tree_ = new wxTreeCtrl(this, wxID_ANY,
                            wxDefaultPosition, wxDefaultSize,
-                           wxTR_DEFAULT_STYLE | 
-                           wxTR_HIDE_ROOT | 
+                           wxTR_DEFAULT_STYLE |
+                           wxTR_HIDE_ROOT |
                            wxTR_FULL_ROW_HIGHLIGHT |
                            wxTR_NO_LINES |
+                           wxTR_MULTIPLE |
                            wxBORDER_NONE);
 
     tree_->SetBackgroundColour(app_.GetTheme().GetPrimaryBackgroundColor());
@@ -101,9 +100,16 @@ SpyNav::SpyNav(wxWindow* parent, App& app, wxWindowID id)
     SetSizer(sizer);
 }
 
+// ── Destructor ────────────────────────────────────────────────────────────────
+
+SpyNav::~SpyNav()
+{
+    app_.UnregisterObserver(this);
+}
+
 // ── Poll / data timer ─────────────────────────────────────────────────────────
 
-void SpyNav::OnDataTimer(wxTimerEvent&)
+void SpyNav::OnDataPoll()
 {
     Poll();
 }
@@ -209,29 +215,44 @@ void SpyNav::OnSelChanged(wxTreeEvent& e)
 
 void SpyNav::OnBeginDrag(wxTreeEvent& e)
 {
-    e.Skip();
+    wxTreeItemId dragged = e.GetItem();
+    if (!dragged.IsOk()) return;
 
-    wxTreeItemId item = e.GetItem();
-    if (!item.IsOk()) return;
+    // Gather all currently selected leaf keys
+    wxArrayTreeItemIds selections;
+    tree_->GetSelections(selections);
 
-    auto* data = dynamic_cast<TreeData*>(tree_->GetItemData(item));
-    if (!data) {
-        // Namespace node — don't allow drag
-        return;
+    // Check whether the dragged item is part of the selection
+    bool in_selection = false;
+    for (const auto& sel : selections)
+        if (sel == dragged) { in_selection = true; break; }
+
+    wxArrayString keys;
+
+    if (in_selection && selections.size() > 1) {
+        // Multi-drag: collect every selected leaf (skip namespace nodes)
+        for (const auto& sel : selections) {
+            auto* d = dynamic_cast<TreeData*>(tree_->GetItemData(sel));
+            if (d) keys.Add(d->GetKey());
+        }
+    } else {
+        // Single-drag: just the item under the cursor
+        auto* d = dynamic_cast<TreeData*>(tree_->GetItemData(dragged));
+        if (!d) return;   // namespace node — don't allow drag
+        keys.Add(d->GetKey());
     }
 
-    // Allow the drag to proceed
     e.Allow();
 
-    wxString full_key = data->GetKey();
-    wxTextDataObject drag_data(full_key);
+    wxString drag_text = wxJoin(keys, '\n');
+    wxTextDataObject drag_data(drag_text);
     wxDropSource source(drag_data, tree_);
-    wxDragResult result = source.DoDragDrop(wxDrag_CopyOnly);
+    source.DoDragDrop(wxDrag_CopyOnly);
 
-    // Explicitly release internal focus states immediately after execution
-    if (this->HasCapture()) {
+    if (tree_->HasCapture())
+        tree_->ReleaseMouse();
+    if (this->HasCapture())
         this->ReleaseMouse();
-    }
 }
 
 void SpyNav::OnSearchText(wxCommandEvent&)   { ApplySearch(); }
@@ -244,12 +265,16 @@ void SpyNav::ApplySearch()
     std::transform(query.begin(), query.end(), query.begin(),
                    [](unsigned char c){ return std::tolower(c); });
 
-    // Rebuild the visible tree from known_cache_
+    // Rebuild the visible tree from known_cache_ in sorted order
     tree_->DeleteAllItems();
     node_cache_.clear();
     root_ = tree_->AddRoot("__root__");
 
-    for (const auto& key : known_cache_) {
+    // Sort keys so the tree is stable and predictable regardless of hash order
+    std::vector<std::string> sorted_keys(known_cache_.begin(), known_cache_.end());
+    std::sort(sorted_keys.begin(), sorted_keys.end());
+
+    for (const auto& key : sorted_keys) {
         if (!query.empty()) {
             // Case-insensitive substring match against full dotted key
             std::string lower_key = key;
@@ -267,24 +292,35 @@ void SpyNav::OnItemRightClick(wxTreeEvent& e)
     wxTreeItemId item = e.GetItem();
     if (!item.IsOk()) return;
 
-    auto* data = dynamic_cast<TreeData*>(tree_->GetItemData(item));
-    if (!data) return;  // namespace node — no menu
+    // If the right-clicked item isn't already selected, select it exclusively
+    if (!tree_->IsSelected(item))
+        tree_->SelectItem(item);
 
-    // Visually select the right-clicked item
-    tree_->SelectItem(item);
+    // Collect all selected leaf keys
+    wxArrayTreeItemIds selections;
+    tree_->GetSelections(selections);
 
-    const std::string key = data->GetKey().ToStdString();
+    std::vector<std::string> keys;
+    for (const auto& sel : selections) {
+        auto* d = dynamic_cast<TreeData*>(tree_->GetItemData(sel));
+        if (d) keys.push_back(d->GetKey().ToStdString());
+    }
 
+    if (keys.empty()) return;  // only namespace nodes selected
+
+    const size_t n = keys.size();
     wxMenu menu;
-    menu.Append(ID_NAV_PLOT,  "Plot");
-    menu.Append(ID_NAV_WATCH, "Watch");
+    menu.Append(ID_NAV_PLOT,  n == 1 ? "Plot"
+                                     : wxString::Format("Plot (%zu keys)", n));
+    menu.Append(ID_NAV_WATCH, n == 1 ? "Watch"
+                                     : wxString::Format("Watch (%zu keys)", n));
 
-    menu.Bind(wxEVT_MENU, [this, key](wxCommandEvent&) {
-        app_.AddPlotPane(key);
+    menu.Bind(wxEVT_MENU, [this, keys](wxCommandEvent&) {
+        app_.AddPlotPane(keys);
     }, ID_NAV_PLOT);
 
-    menu.Bind(wxEVT_MENU, [this, key](wxCommandEvent&) {
-        app_.AddWatchPane(key);
+    menu.Bind(wxEVT_MENU, [this, keys](wxCommandEvent&) {
+        app_.AddWatchPane(keys);
     }, ID_NAV_WATCH);
 
     tree_->PopupMenu(&menu);

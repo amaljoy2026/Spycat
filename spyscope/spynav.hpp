@@ -44,12 +44,14 @@ private:
 
 // ── SpyNav ──────────────────────────────────────────────────────────────
 
-class SpyNav : public wxPanel
+class SpyNav : public wxPanel, public DataObserver
 {
 public:
     SpyNav(wxWindow* parent, App& app, wxWindowID id = wxID_ANY);
+    ~SpyNav() override;
 
     void Poll();
+    void OnDataPoll() override;
 
     // Currently selected full key — empty if a namespace node is selected
     std::string GetSelectedKey() const { return selected_key_; }
@@ -70,14 +72,12 @@ private:
     void OnBeginDrag(wxTreeEvent&);
     void OnItemExpanding(wxTreeEvent& e) { e.Skip(); }
     void OnItemRightClick(wxTreeEvent&);
-    void OnDataTimer(wxTimerEvent&);
     void OnSearchText(wxCommandEvent&);
     void OnSearchButton(wxCommandEvent&);
 
     App&          app_;
 
     wxTreeCtrl*   tree_;
-    wxTimer       data_timer_;
 
     // Hidden root — wxTR_HIDE_ROOT makes its children appear top-level
     wxTreeItemId  root_;

@@ -21,7 +21,8 @@ public:
 
     bool OnDropText(wxCoord, wxCoord, const wxString& text) override
     {
-        watch_->AddKey(text.ToStdString());
+        for (const auto& key : wxSplit(text, '\n'))
+            if (!key.IsEmpty()) watch_->AddKey(key.ToStdString());
         return true;
     }
 
@@ -118,10 +119,8 @@ void ToggleBox::OnPaint(wxPaintEvent&)
 SpyWatch::SpyWatch(wxWindow* parent, App& app, wxWindowID id)
     : wxScrolledWindow(parent, id)
     , app_(app)
-    , data_timer_(this)
 {
-    Bind(wxEVT_TIMER, &SpyWatch::OnDataTimer, this, data_timer_.GetId());
-    data_timer_.Start(17);   // ~60 Hz
+    app_.RegisterObserver(this);
 
     SetBackgroundColour(app_.GetTheme().GetPrimaryBackgroundColor());
     SetScrollRate(0, ROW_H);
@@ -140,9 +139,16 @@ SpyWatch::SpyWatch(wxWindow* parent, App& app, wxWindowID id)
     SetDropTarget(new WatchDropTarget(this));
 }
 
+// ── Destructor ────────────────────────────────────────────────────────────────
+
+SpyWatch::~SpyWatch()
+{
+    app_.UnregisterObserver(this);
+}
+
 // ── Poll / data timer ─────────────────────────────────────────────────────────
 
-void SpyWatch::OnDataTimer(wxTimerEvent&)
+void SpyWatch::OnDataPoll()
 {
     Poll();
 }

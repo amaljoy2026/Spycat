@@ -8,11 +8,36 @@
 #include <sstream>
 #include <iomanip>
 #include <variant>
+#include <unordered_set>
+#include <limits>
 
 #include "theme.hpp"
+#include "dockpanel.hpp"
 
 namespace spycat
 {
+
+// ── Trace colour palette ──────────────────────────────────────────────────────
+
+static const wxColour kTracePalette[] = {
+    { 0x00, 0xCC, 0x66 },   // green
+    { 0x00, 0xCC, 0xFF },   // cyan
+    { 0xFF, 0xD7, 0x00 },   // amber
+    { 0xFF, 0x77, 0x00 },   // orange
+    { 0xFF, 0x44, 0xFF },   // magenta
+    { 0xFF, 0x44, 0x44 },   // red
+    { 0x88, 0xFF, 0x00 },   // lime
+    { 0xAA, 0x88, 0xFF },   // lavender
+};
+static constexpr size_t kPaletteSize = sizeof(kTracePalette) / sizeof(kTracePalette[0]);
+
+// ── Marker geometry constants ─────────────────────────────────────────────────
+static constexpr double MARKER_SNAP_PX  = 12.0;  // creation threshold (pixels)
+static constexpr double MARKER_HIT_PX   =  8.0;  // drag hit radius    (pixels)
+static constexpr double MARKER_RADIUS   =  5.0;  // circle radius      (pixels)
+static constexpr int    MARKER_CTRL_W   = 120;   // text control width
+static constexpr int    MARKER_CTRL_H   = 22;    // text control height
+static constexpr int    MARKER_CTRL_GAP =  2;    // gap between the two controls
 
 // ── Drop target ───────────────────────────────────────────────────────────────
 
@@ -23,7 +48,9 @@ public:
 
     bool OnDropText(wxCoord, wxCoord, const wxString& text) override
     {
-        plot_->SetKey(text.ToStdString());
+        std::cout << text << std::endl;
+        for (const auto& key : wxSplit(text, '\n'))
+            if (!key.IsEmpty()) plot_->AddTrace(key.ToStdString());
         return true;
     }
 
@@ -31,78 +58,351 @@ private:
     SpyPlot* plot_;
 };
 
-// ── Colour palette ────────────────────────────────────────────────────────────
-// const wxColour SpyPlot::COL_BG    { 0xFF, 0xFF, 0xFF };
-// const wxColour SpyPlot::COL_GRID  { 0x00, 0x33, 0x00 };
-// const wxColour SpyPlot::COL_AXIS  { 0x00, 0x66, 0x00 };
-// const wxColour SpyPlot::COL_TRACE { 0x00, 0x66, 0x00 };
-// const wxColour SpyPlot::COL_TEXT  { 0x00, 0x66, 0x00 };
-// const wxColour SpyPlot::COL_VALUE { 0xFF, 0xFF, 0xFF };
-
 // ── Construction ──────────────────────────────────────────────────────────────
 SpyPlot::SpyPlot(wxWindow* parent, App& app, const std::string& key,
                  wxWindowID id, const wxPoint& pos,
                  const wxSize& size, long style)
     : wxPanel(parent, id, pos, size, style)
-    , key_(key)
     , app_(app)
     , paint_timer_(this)
-    , data_timer_(this)
 {
+    traces_.emplace_back(key, kTracePalette[0]);
+
     SetBackgroundStyle(wxBG_STYLE_PAINT);   // required for wxAutoBufferedPaintDC
     SetBackgroundColour(app_.GetTheme().GetPrimaryBackgroundColor());
     SetMinSize({ 200, 100 });
 
-    Bind(wxEVT_PAINT, &SpyPlot::OnPaint,      this);
-    Bind(wxEVT_SIZE,  &SpyPlot::OnSize,        this);
-    Bind(wxEVT_TIMER, &SpyPlot::OnPaintTimer,  this, paint_timer_.GetId());
-    Bind(wxEVT_TIMER, &SpyPlot::OnDataTimer,   this, data_timer_.GetId());
+    Bind(wxEVT_PAINT,         &SpyPlot::OnPaint,       this);
+    Bind(wxEVT_SIZE,          &SpyPlot::OnSize,         this);
+    Bind(wxEVT_TIMER,         &SpyPlot::OnPaintTimer,   this, paint_timer_.GetId());
+    Bind(wxEVT_CONTEXT_MENU,  &SpyPlot::OnContextMenu,  this);
+    Bind(wxEVT_MOUSEWHEEL,    &SpyPlot::OnMouseWheel,   this);
+    Bind(wxEVT_LEFT_DOWN,     &SpyPlot::OnLeftDown,     this);
+    Bind(wxEVT_LEFT_UP,       &SpyPlot::OnLeftUp,       this);
+    Bind(wxEVT_LEFT_DCLICK,   &SpyPlot::OnLeftDClick,   this);
+    Bind(wxEVT_MOTION,        &SpyPlot::OnMouseMotion,  this);
+    Bind(wxEVT_KEY_DOWN,      &SpyPlot::OnKeyDown,      this);
 
     paint_timer_.Start(16);   // ~60 Hz repaint
-    data_timer_.Start(16);    // ~60 Hz data ingestion
 
+    app_.RegisterObserver(this);
     SetDropTarget(new PlotDropTarget(this));
+}
+
+SpyPlot::~SpyPlot()
+{
+    app_.UnregisterObserver(this);
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 void SpyPlot::SetKey(const std::string& key)
 {
-    key_ = key;
-    data_.clear();
+    traces_.clear();
+    traces_.emplace_back(key, kTracePalette[0]);
+}
+
+void SpyPlot::AddTrace(const std::string& key)
+{
+    for (const auto& t : traces_)
+        if (t.key == key) return;
+
+    traces_.emplace_back(key, kTracePalette[traces_.size() % kPaletteSize]);
+
+    // On second trace, rename the AUI pane to the generic "Plot"
+    if (traces_.size() == 2) {
+        wxAuiManager& dock = app_.GetDockPanel()->GetDock();
+        wxAuiPaneInfo& pane = dock.GetPane(this);
+        if (pane.IsOk()) {
+            pane.Caption("Plot");
+            dock.Update();
+        } else {
+            // Embedded inside SpyDefault — pane is the parent
+            wxAuiPaneInfo& parent_pane = dock.GetPane(GetParent());
+            if (parent_pane.IsOk()) {
+                parent_pane.Caption("Plot");
+                dock.Update();
+            }
+        }
+    }
 }
 
 void SpyPlot::PushSample(double value)
 {
+    if (traces_.empty()) return;
     double t = std::chrono::duration<double>(Clock::now() - start_).count();
-    data_.push_back({ t, value });
+    traces_[0].data.push_back({ t, value });
 }
 
-// ── Data timer ────────────────────────────────────────────────────────────────
-void SpyPlot::OnDataTimer(wxTimerEvent&)
-{
-    DataSource *source = app_.GetDataSource();
+// ── Marker helpers ────────────────────────────────────────────────────────────
 
+void SpyPlot::ClearMarkers()
+{
+    for (auto& link : links_) {
+        link.dy_ctrl->Destroy();
+        link.dx_ctrl->Destroy();
+    }
+    links_.clear();
+
+    for (auto& m : markers_) {
+        m.x_ctrl->Destroy();
+        m.y_ctrl->Destroy();
+    }
+    markers_.clear();
+    dragging_marker_       = -1;
+    shift_selected_marker_ = -1;
+}
+
+void SpyPlot::OnLeftDClick(wxMouseEvent& e)
+{
+    if (!paused_) { e.Skip(); return; }
+
+    wxPoint pos = e.GetPosition();
+
+    // Find the visible sample closest to the click, across all traces
+    double t_right = frozen_time_s_ + pan_offset_s_;
+    double t_left  = t_right - time_window_s_;
+
+    double best_dist  = std::numeric_limits<double>::max();
+    size_t best_trace = 0;
+    double best_time  = 0.0;
+    double best_value = 0.0;
+
+    for (size_t ti = 0; ti < traces_.size(); ++ti) {
+        for (const auto& s : traces_[ti].data) {
+            if (s.time_s < t_left) continue;
+            double dx   = pos.x - ClientX(s.time_s);
+            double dy   = pos.y - ClientY(s.value);
+            double dist = std::sqrt(dx*dx + dy*dy);
+            if (dist < best_dist) {
+                best_dist  = dist;
+                best_trace = ti;
+                best_time  = s.time_s;
+                best_value = s.value;
+            }
+        }
+    }
+
+    if (best_dist > MARKER_SNAP_PX) return;   // not close enough to any trace
+
+    Marker m;
+    m.trace_idx = best_trace;
+    m.time_s    = best_time;
+    m.value     = best_value;
+
+    const wxColour& col = traces_[best_trace].colour;
+
+    // y_ctrl — value label (top), updates on drag
+    std::ostringstream yss;
+    yss << std::setprecision(6) << best_value;
+    m.y_ctrl = new wxStaticText(this, wxID_ANY,
+                                 wxString::FromUTF8("y: " + yss.str()),
+                                 wxDefaultPosition, wxSize(MARKER_CTRL_W, MARKER_CTRL_H),
+                                 wxST_NO_AUTORESIZE | wxALIGN_LEFT);
+    m.y_ctrl->SetFont(app_.GetTheme().GetFont());
+    m.y_ctrl->SetForegroundColour(*wxWHITE);
+    m.y_ctrl->SetBackgroundColour(app_.GetTheme().GetAltBackgroundColor());
+
+    // x_ctrl — time label (below y_ctrl), updates on drag
+    std::ostringstream xss;
+    xss << std::fixed << std::setprecision(3) << best_time << "s";
+    m.x_ctrl = new wxStaticText(this, wxID_ANY,
+                                 wxString::FromUTF8("x: " + xss.str()),
+                                 wxDefaultPosition, wxSize(MARKER_CTRL_W, MARKER_CTRL_H),
+                                 wxST_NO_AUTORESIZE | wxALIGN_LEFT);
+    m.x_ctrl->SetFont(app_.GetTheme().GetFont());
+    m.x_ctrl->SetForegroundColour(*wxWHITE);
+    m.x_ctrl->SetBackgroundColour(app_.GetTheme().GetPrimaryBackgroundColor());
+
+    markers_.push_back(m);
+    RepositionMarkerControls();
+    Refresh();
+}
+
+void SpyPlot::DrawMarkers(wxGraphicsContext* gc)
+{
+    for (size_t i = 0; i < markers_.size(); ++i) {
+        if (markers_[i].trace_idx >= traces_.size()) continue;
+        double cx = ClientX(markers_[i].time_s);
+        double cy = ClientY(markers_[i].value);
+
+        // Highlight ring when this marker is the first shift-selected endpoint
+        if (static_cast<int>(i) == shift_selected_marker_) {
+            gc->SetPen(wxPen(*wxWHITE, 2));
+            gc->SetBrush(*wxTRANSPARENT_BRUSH);
+            gc->DrawEllipse(cx - MARKER_RADIUS - 3, cy - MARKER_RADIUS - 3,
+                            2 * (MARKER_RADIUS + 3), 2 * (MARKER_RADIUS + 3));
+        }
+
+        gc->SetPen(wxPen(*wxWHITE, 1));
+        gc->SetBrush(wxBrush(traces_[markers_[i].trace_idx].colour));
+        gc->DrawEllipse(cx - MARKER_RADIUS, cy - MARKER_RADIUS,
+                        2 * MARKER_RADIUS,  2 * MARKER_RADIUS);
+    }
+}
+
+void SpyPlot::RepositionMarkerControls()
+{
+    wxSize sz = GetSize();
+
+    // ── Per-marker controls ───────────────────────────────────────────────────
+    for (auto& m : markers_) {
+        int cx = static_cast<int>(ClientX(m.time_s));
+        int cy = static_cast<int>(ClientY(m.value));
+
+        // x_ctrl sits immediately above the circle; y_ctrl is above x_ctrl
+        int x_top = cy - static_cast<int>(MARKER_RADIUS) - MARKER_CTRL_GAP - MARKER_CTRL_H;
+        int y_top = x_top - MARKER_CTRL_GAP - MARKER_CTRL_H;
+
+        int left = cx - MARKER_CTRL_W / 2;
+        left = std::max(MARGIN_L, std::min(left, sz.x - MARGIN_R - MARKER_CTRL_W));
+
+        m.x_ctrl->SetSize(left, x_top, MARKER_CTRL_W, MARKER_CTRL_H);
+        m.y_ctrl->SetSize(left, y_top, MARKER_CTRL_W, MARKER_CTRL_H);
+    }
+
+    // ── Link midpoint controls ────────────────────────────────────────────────
+    for (auto& link : links_) {
+        if (link.from_idx >= markers_.size() || link.to_idx >= markers_.size()) continue;
+
+        const Marker& from = markers_[link.from_idx];
+        const Marker& to   = markers_[link.to_idx];
+
+        // Midpoint in screen coords
+        int cx = static_cast<int>((ClientX(from.time_s) + ClientX(to.time_s)) / 2.0);
+        int cy = static_cast<int>((ClientY(from.value)  + ClientY(to.value))  / 2.0);
+
+        // Stack labels above the midpoint dot (same convention as marker controls)
+        int dx_top = cy - MARKER_CTRL_GAP - MARKER_CTRL_H;
+        int dy_top = dx_top - MARKER_CTRL_GAP - MARKER_CTRL_H;
+
+        int left = cx - MARKER_CTRL_W / 2;
+        left = std::max(MARGIN_L, std::min(left, sz.x - MARGIN_R - MARKER_CTRL_W));
+
+        link.dy_ctrl->SetSize(left, dy_top, MARKER_CTRL_W, MARKER_CTRL_H);
+        link.dx_ctrl->SetSize(left, dx_top, MARKER_CTRL_W, MARKER_CTRL_H);
+
+        // Refresh Δ values (markers may have been dragged)
+        double dt = to.time_s - from.time_s;
+        double dv = to.value  - from.value;
+
+        std::ostringstream yss;
+        yss << std::showpos << std::setprecision(4) << dv;
+        link.dy_ctrl->SetLabel(wxString::FromUTF8("Δy: " + yss.str()));
+
+        std::ostringstream xss;
+        xss << std::showpos << std::fixed << std::setprecision(3) << dt << "s";
+        link.dx_ctrl->SetLabel(wxString::FromUTF8("Δx: " + xss.str()));
+    }
+}
+
+void SpyPlot::OnKeyDown(wxKeyEvent& e)
+{
+    if (e.GetKeyCode() == WXK_ESCAPE && shift_selected_marker_ >= 0) {
+        shift_selected_marker_ = -1;
+        Refresh();
+        return;
+    }
+    e.Skip();
+}
+
+// ── Marker links ─────────────────────────────────────────────────────────────
+
+void SpyPlot::CreateMarkerLink(int from_idx, int to_idx)
+{
+    const Marker& from = markers_[from_idx];
+    const Marker& to   = markers_[to_idx];
+
+    double dt = to.time_s - from.time_s;
+    double dv = to.value  - from.value;
+
+    MarkerLink link;
+    link.from_idx = static_cast<size_t>(from_idx);
+    link.to_idx   = static_cast<size_t>(to_idx);
+
+    // dy_ctrl — Δy label (top)
+    std::ostringstream yss;
+    yss << std::showpos << std::setprecision(4) << dv;
+    link.dy_ctrl = new wxStaticText(this, wxID_ANY,
+                                     wxString::FromUTF8("Δy: " + yss.str()),
+                                     wxDefaultPosition, wxSize(MARKER_CTRL_W, MARKER_CTRL_H),
+                                     wxST_NO_AUTORESIZE | wxALIGN_LEFT);
+    link.dy_ctrl->SetFont(app_.GetTheme().GetFont());
+    link.dy_ctrl->SetForegroundColour(*wxWHITE);
+    link.dy_ctrl->SetBackgroundColour(app_.GetTheme().GetAltBackgroundColor());
+
+    // dx_ctrl — Δx label (below dy)
+    std::ostringstream xss;
+    xss << std::showpos << std::fixed << std::setprecision(3) << dt << "s";
+    link.dx_ctrl = new wxStaticText(this, wxID_ANY,
+                                     wxString::FromUTF8("Δx: " + xss.str()),
+                                     wxDefaultPosition, wxSize(MARKER_CTRL_W, MARKER_CTRL_H),
+                                     wxST_NO_AUTORESIZE | wxALIGN_LEFT);
+    link.dx_ctrl->SetFont(app_.GetTheme().GetFont());
+    link.dx_ctrl->SetForegroundColour(*wxWHITE);
+    link.dx_ctrl->SetBackgroundColour(app_.GetTheme().GetPrimaryBackgroundColor());
+
+    links_.push_back(link);
+    RepositionMarkerControls();
+    Refresh();
+}
+
+void SpyPlot::DrawMarkerLinks(wxGraphicsContext* gc)
+{
+    for (const auto& link : links_) {
+        if (link.from_idx >= markers_.size() || link.to_idx >= markers_.size()) continue;
+
+        const Marker& from = markers_[link.from_idx];
+        const Marker& to   = markers_[link.to_idx];
+
+        double x1 = ClientX(from.time_s), y1 = ClientY(from.value);
+        double x2 = ClientX(to.time_s),   y2 = ClientY(to.value);
+
+        // Dashed white line
+        gc->SetPen(gc->CreatePen(
+            wxGraphicsPenInfo(*wxWHITE, 1.0, wxPENSTYLE_SHORT_DASH)));
+        gc->StrokeLine(x1, y1, x2, y2);
+
+        // Small dot at midpoint as visual anchor for the labels
+        double mx = (x1 + x2) / 2.0;
+        double my = (y1 + y2) / 2.0;
+        gc->SetPen(wxPen(*wxWHITE, 1));
+        gc->SetBrush(wxBrush(*wxWHITE));
+        gc->DrawEllipse(mx - 3, my - 3, 6, 6);
+    }
+}
+
+// ── Data poll (called by App's master timer) ──────────────────────────────────
+void SpyPlot::OnDataPoll()
+{
+    if (paused_) return;
+
+    DataSource* source = app_.GetDataSource();
     if (!source) return;
 
-    auto entry = source->Get(key_);
-    if (!entry) return;
+    double t = std::chrono::duration<double>(Clock::now() - start_).count();
 
-    double value = std::visit([](auto&& v) -> double {
-        using T = std::decay_t<decltype(v)>;
-        if constexpr (std::is_arithmetic_v<T>)
-            return static_cast<double>(v);
-        return 0.0;   // string / raw blob — not plottable
-    }, entry->value);
+    for (auto& trace : traces_) {
+        auto entry = source->Get(trace.key);
+        if (!entry) continue;
 
-    PushSample(value);
+        double value = std::visit([](auto&& v) -> double {
+            using T = std::decay_t<decltype(v)>;
+            if constexpr (std::is_arithmetic_v<T>)
+                return static_cast<double>(v);
+            return 0.0;
+        }, entry->value);
+
+        trace.data.push_back({ t, value });
+    }
 }
 
 // ── Coordinate transforms ─────────────────────────────────────────────────────
 double SpyPlot::ClientX(double time_s) const
 {
-    // Most-recent time sits at the right edge
-    double t_now   = std::chrono::duration<double>(Clock::now() - start_).count();
-    double t_left  = t_now - time_window_s_;
+    double t_now   = paused_ ? frozen_time_s_
+                             : std::chrono::duration<double>(Clock::now() - start_).count();
+    double t_right = t_now + pan_offset_s_;
+    double t_left  = t_right - time_window_s_;
     double plot_w  = GetSize().x - MARGIN_L - MARGIN_R;
     return MARGIN_L + (time_s - t_left) / time_window_s_ * plot_w;
 }
@@ -117,9 +417,11 @@ double SpyPlot::ClientY(double value) const
 
 double SpyPlot::PlotTime(int px) const
 {
-    double t_now  = std::chrono::duration<double>(Clock::now() - start_).count();
-    double t_left = t_now - time_window_s_;
-    double plot_w = GetSize().x - MARGIN_L - MARGIN_R;
+    double t_now   = paused_ ? frozen_time_s_
+                             : std::chrono::duration<double>(Clock::now() - start_).count();
+    double t_right = t_now + pan_offset_s_;
+    double t_left  = t_right - time_window_s_;
+    double plot_w  = GetSize().x - MARGIN_L - MARGIN_R;
     return t_left + (px - MARGIN_L) / plot_w * time_window_s_;
 }
 
@@ -133,23 +435,28 @@ double SpyPlot::PlotValue(int py) const
 // ── Auto-scale ────────────────────────────────────────────────────────────────
 void SpyPlot::UpdateYRange()
 {
-    if (!auto_scale_ || data_.empty()) return;
+    if (!auto_scale_) return;
 
-    double t_now  = std::chrono::duration<double>(Clock::now() - start_).count();
-    double t_left = t_now - time_window_s_;
+    double t_now   = paused_ ? frozen_time_s_
+                             : std::chrono::duration<double>(Clock::now() - start_).count();
+    double t_left  = t_now + pan_offset_s_ - time_window_s_;
 
     double lo =  std::numeric_limits<double>::max();
     double hi = -std::numeric_limits<double>::max();
+    bool   any = false;
 
-    for (const auto& s : data_) {
-        if (s.time_s < t_left) continue;
-        lo = std::min(lo, s.value);
-        hi = std::max(hi, s.value);
+    for (const auto& trace : traces_) {
+        for (const auto& s : trace.data) {
+            if (s.time_s < t_left) continue;
+            lo = std::min(lo, s.value);
+            hi = std::max(hi, s.value);
+            any = true;
+        }
     }
 
-    if (lo == hi) { lo -= 1.0; hi += 1.0; }   // flat signal: show ±1 band
+    if (!any) return;
+    if (lo == hi) { lo -= 1.0; hi += 1.0; }
 
-    // 5% margin top and bottom
     double margin = (hi - lo) * 0.05;
     y_lo_ = lo - margin;
     y_hi_ = hi + margin;
@@ -216,14 +523,23 @@ void SpyPlot::DrawAxesLabels(wxDC& dc)
 
     // X labels — time offsets in seconds
     double plot_w  = sz.x - MARGIN_L - MARGIN_R;
-    double t_now   = std::chrono::duration<double>(Clock::now() - start_).count();
+    double t_now   = paused_ ? frozen_time_s_
+                             : std::chrono::duration<double>(Clock::now() - start_).count();
+    double t_right = t_now + pan_offset_s_;
     const int V_LINES = 5;
+
+    // Choose precision so adjacent labels are always distinct
+    double step = time_window_s_ / V_LINES;
+    int x_prec = 1;
+    if (step < 0.1)  x_prec = 2;
+    if (step < 0.01) x_prec = 3;
+
     for (int i = 0; i <= V_LINES; ++i) {
-        double t      = t_now - time_window_s_ + i * time_window_s_ / V_LINES;
+        double t      = t_right - time_window_s_ + i * time_window_s_ / V_LINES;
         double px     = MARGIN_L + i * plot_w / V_LINES;
 
         std::ostringstream ss;
-        ss << std::fixed << std::setprecision(1) << (t - t_now) << "s";
+        ss << std::fixed << std::setprecision(x_prec) << (t - t_right) << "s";
         wxString label = wxString::FromUTF8(ss.str());
 
         wxSize text_sz = dc.GetTextExtent(label);
@@ -231,57 +547,330 @@ void SpyPlot::DrawAxesLabels(wxDC& dc)
                     sz.y - MARGIN_B + 4);
     }
 
-    // Key name top-left
-    dc.SetTextForeground(app_.GetTheme().GetHighlightColor());
-    dc.SetFont(wxFont(12, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
-    dc.DrawText(wxString::FromUTF8(key_), MARGIN_L + 4, MARGIN_T + 2);
+    // Key names stacked top-left, each in its trace colour.
+    // Record bounding rects for right-click hit-testing.
+    trace_label_rects_.clear();
+    dc.SetFont(wxFont(10, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
+    int label_y = MARGIN_T + 2;
+    for (const auto& trace : traces_) {
+        dc.SetTextForeground(trace.colour);
+        wxString name = wxString::FromUTF8(trace.key);
+        wxSize   ext  = dc.GetTextExtent(name);
+        dc.DrawText(name, MARGIN_L + 4, label_y);
+        trace_label_rects_.emplace_back(MARGIN_L + 4, label_y, ext.x, ext.y);
+        label_y += ext.y + 2;
+    }
 }
 
 void SpyPlot::DrawTrace(wxGraphicsContext* gc)
 {
-    if (data_.size() < 2) return;
+    double t_now  = paused_ ? frozen_time_s_
+                            : std::chrono::duration<double>(Clock::now() - start_).count();
+    double t_left = t_now + pan_offset_s_ - time_window_s_;
 
-    double t_now  = std::chrono::duration<double>(Clock::now() - start_).count();
-    double t_left = t_now - time_window_s_;
+    for (const auto& trace : traces_) {
+        if (trace.data.size() < 2) continue;
 
-    gc->SetPen(wxPen(app_.GetTheme().GetHighlightColor(), 2));
+        gc->SetPen(wxPen(trace.colour, 2));
+        wxGraphicsPath path = gc->CreatePath();
+        bool first = true;
 
-    wxGraphicsPath path = gc->CreatePath();
-    bool first = true;
+        for (const auto& s : trace.data) {
+            if (s.time_s < t_left) continue;
+            double cx = ClientX(s.time_s);
+            double cy = ClientY(s.value);
+            if (first) { path.MoveToPoint(cx, cy); first = false; }
+            else        path.AddLineToPoint(cx, cy);
+        }
 
-    for (const auto& s : data_) {
-        if (s.time_s < t_left) continue;
-
-        double cx = ClientX(s.time_s);
-        double cy = ClientY(s.value);
-
-        if (first) { path.MoveToPoint(cx, cy); first = false; }
-        else        path.AddLineToPoint(cx, cy);
+        if (!first)
+            gc->StrokePath(path);
     }
-
-    if (!first)
-        gc->StrokePath(path);
 }
 
 void SpyPlot::DrawLatestValue(wxGraphicsContext* gc)
 {
-    if (data_.empty()) return;
+    for (const auto& trace : traces_) {
+        if (trace.data.empty()) continue;
+        double cy = ClientY(trace.data.back().value);
+        gc->SetPen(wxPen(trace.colour, 2));
+        gc->StrokeLine(MARGIN_L - 6, cy, MARGIN_L, cy);
+    }
+}
 
-    double latest = data_.back().value;
+// ── Panning (active only while paused) ───────────────────────────────────────
 
-    std::ostringstream ss;
-    ss << std::setprecision(6) << latest;
-    wxString label = wxString::FromUTF8(ss.str());
+void SpyPlot::OnLeftDown(wxMouseEvent& e)
+{
+    if (!paused_) { e.Skip(); return; }
 
-    // Draw current value at right edge of trace
-    double cy = ClientY(latest);
-    double cx = GetSize().x - MARGIN_R - 4;
+    wxPoint pos = e.GetPosition();
 
-    gc->SetPen(wxPen(app_.GetTheme().GetHighlightColor(), 1));
-    gc->SetBrush(*wxTRANSPARENT_BRUSH);
+    // Any non-shift click cancels a pending link selection
+    if (!e.ShiftDown() && shift_selected_marker_ >= 0) {
+        shift_selected_marker_ = -1;
+        Refresh();
+    }
 
-    // Horizontal tick at current value on Y axis
-    gc->StrokeLine(MARGIN_L - 4, cy, MARGIN_L, cy);
+    // Shift+click: marker linking
+    if (e.ShiftDown()) {
+        for (int i = 0; i < static_cast<int>(markers_.size()); ++i) {
+            double dx = pos.x - ClientX(markers_[i].time_s);
+            double dy = pos.y - ClientY(markers_[i].value);
+            if (std::sqrt(dx*dx + dy*dy) <= MARKER_HIT_PX) {
+                if (shift_selected_marker_ < 0) {
+                    // First endpoint selected — highlight it
+                    shift_selected_marker_ = i;
+                    Refresh();
+                } else if (shift_selected_marker_ != i) {
+                    // Second endpoint — create the link
+                    CreateMarkerLink(shift_selected_marker_, i);
+                    shift_selected_marker_ = -1;
+                }
+                return;
+            }
+        }
+        // Shift+click on empty space — cancel pending selection
+        shift_selected_marker_ = -1;
+        Refresh();
+        return;
+    }
+
+    // Marker drag takes priority — check circle hit first
+    for (int i = 0; i < static_cast<int>(markers_.size()); ++i) {
+        double dx = pos.x - ClientX(markers_[i].time_s);
+        double dy = pos.y - ClientY(markers_[i].value);
+        if (std::sqrt(dx*dx + dy*dy) <= MARKER_HIT_PX) {
+            dragging_marker_ = i;
+            CaptureMouse();
+            return;
+        }
+    }
+
+    // Fall through to pan
+    dragging_      = true;
+    last_drag_pos_ = pos;
+    CaptureMouse();
+}
+
+void SpyPlot::OnLeftUp(wxMouseEvent& e)
+{
+    if (dragging_marker_ >= 0) {
+        dragging_marker_ = -1;
+        if (HasCapture()) ReleaseMouse();
+        return;
+    }
+    if (!dragging_) { e.Skip(); return; }
+    dragging_ = false;
+    if (HasCapture()) ReleaseMouse();
+}
+
+void SpyPlot::OnMouseMotion(wxMouseEvent& e)
+{
+    if (!paused_) { e.Skip(); return; }
+
+    wxPoint pos = e.GetPosition();
+
+    // Marker drag
+    if (dragging_marker_ >= 0) {
+        Marker& m       = markers_[dragging_marker_];
+        double new_time = PlotTime(pos.x);
+
+        // Snap to nearest sample on the same trace by x distance
+        const auto& trace = traces_[m.trace_idx];
+        double best_dt = std::numeric_limits<double>::max();
+        for (const auto& s : trace.data) {
+            double dt = std::abs(s.time_s - new_time);
+            if (dt < best_dt) {
+                best_dt  = dt;
+                m.time_s = s.time_s;
+                m.value  = s.value;
+            }
+        }
+
+        // Sync both labels to the new sample
+        std::ostringstream yss;
+        yss << std::setprecision(6) << m.value;
+        m.y_ctrl->SetLabel(wxString::FromUTF8("y: " + yss.str()));
+
+        std::ostringstream xss;
+        xss << std::fixed << std::setprecision(3) << m.time_s << "s";
+        m.x_ctrl->SetLabel(wxString::FromUTF8("x: " + xss.str()));
+
+        RepositionMarkerControls();
+        Refresh();
+        return;
+    }
+
+    if (!dragging_) { e.Skip(); return; }
+    auto_scale_ = false;
+
+    wxPoint delta = pos - last_drag_pos_;
+    last_drag_pos_ = pos;
+
+    double plot_w = GetSize().x - MARGIN_L - MARGIN_R;
+    double plot_h = GetSize().y - MARGIN_T - MARGIN_B;
+
+    // Horizontal — pan time; dragging right moves view into the past
+    double time_per_px = time_window_s_ / plot_w;
+    pan_offset_s_ -= delta.x * time_per_px;
+    pan_offset_s_  = std::min(0.0, pan_offset_s_);   // clamp: can't pan past now
+
+    // Vertical — shift y range
+    double value_per_px = (y_hi_ - y_lo_) / plot_h;
+    double dy = delta.y * value_per_px;   // screen y grows downward, so no negation needed
+    y_lo_ += dy;
+    y_hi_ += dy;
+
+    Refresh();
+}
+
+// ── Context menu ──────────────────────────────────────────────────────────────
+
+void SpyPlot::OnContextMenu(wxContextMenuEvent& e)
+{
+    // ── Hit-test trace key labels ─────────────────────────────────────────────
+    wxPoint client_pos = ScreenToClient(e.GetPosition());
+    for (size_t i = 0; i < trace_label_rects_.size() && i < traces_.size(); ++i) {
+        if (!trace_label_rects_[i].Contains(client_pos)) continue;
+
+        const int ID_REMOVE = wxID_HIGHEST + 301;
+        wxMenu menu;
+        menu.Append(ID_REMOVE, "Remove");
+        menu.Bind(wxEVT_MENU, [this, i](wxCommandEvent&) {
+            // Collect marker indices being removed (those belonging to trace i)
+            std::unordered_set<size_t> dead_markers;
+            for (size_t mi = 0; mi < markers_.size(); ++mi)
+                if (markers_[mi].trace_idx == i) dead_markers.insert(mi);
+
+            // Remove links that touch any dead marker
+            for (auto& link : links_) {
+                if (dead_markers.count(link.from_idx) || dead_markers.count(link.to_idx)) {
+                    link.dy_ctrl->Destroy();
+                    link.dx_ctrl->Destroy();
+                }
+            }
+            links_.erase(
+                std::remove_if(links_.begin(), links_.end(), [&](const MarkerLink& l) {
+                    return dead_markers.count(l.from_idx) || dead_markers.count(l.to_idx);
+                }),
+                links_.end());
+
+            // Destroy dead marker controls and erase them
+            for (auto& m : markers_) {
+                if (m.trace_idx == i) { m.x_ctrl->Destroy(); m.y_ctrl->Destroy(); }
+            }
+            markers_.erase(
+                std::remove_if(markers_.begin(), markers_.end(),
+                               [i](const Marker& m){ return m.trace_idx == i; }),
+                markers_.end());
+
+            // Fix trace indices for surviving markers
+            for (auto& m : markers_)
+                if (m.trace_idx > i) --m.trace_idx;
+
+            // Fix marker indices in surviving links (removal shifts indices down)
+            // Rebuild from_idx/to_idx by counting how many dead markers were below each
+            for (auto& link : links_) {
+                size_t shift_from = 0, shift_to = 0;
+                for (size_t dead : dead_markers) {
+                    if (dead < link.from_idx) ++shift_from;
+                    if (dead < link.to_idx)   ++shift_to;
+                }
+                link.from_idx -= shift_from;
+                link.to_idx   -= shift_to;
+            }
+
+            shift_selected_marker_ = -1;
+
+            traces_.erase(traces_.begin() + i);
+            trace_label_rects_.clear();   // stale — will repopulate on next paint
+
+            // If back to a single trace, restore the leaf name as the pane caption
+            if (traces_.size() == 1) {
+                wxAuiManager& dock = app_.GetDockPanel()->GetDock();
+                wxAuiPaneInfo* pane = &dock.GetPane(this);
+                if (!pane->IsOk()) pane = &dock.GetPane(GetParent());
+                if (pane->IsOk()) {
+                    wxString caption = wxString::FromUTF8(traces_[0].key);
+                    int dot = caption.Find('.', /*fromEnd=*/true);
+                    if (dot != wxNOT_FOUND) caption = caption.Mid(dot + 1);
+                    pane->Caption(caption);
+                    dock.Update();
+                }
+            }
+
+            Refresh();
+        }, ID_REMOVE);
+        PopupMenu(&menu);
+        return;
+    }
+
+    // ── Regular plot context menu ─────────────────────────────────────────────
+    enum {
+        ID_PAUSE      = wxID_HIGHEST + 201,
+        ID_AUTOSCALE  = wxID_HIGHEST + 202,
+        ID_RESET      = wxID_HIGHEST + 203,
+    };
+
+    wxMenu menu;
+    menu.Append(ID_PAUSE,     paused_ ? "Resume" : "Pause");
+    menu.Append(ID_AUTOSCALE, "Auto Scale");
+    menu.Enable(ID_AUTOSCALE, !auto_scale_);
+    menu.AppendSeparator();
+    menu.Append(ID_RESET, "Reset");
+
+    menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+        paused_ = !paused_;
+        if (paused_) {
+            frozen_time_s_ = std::chrono::duration<double>(Clock::now() - start_).count();
+        } else {
+            pan_offset_s_ = 0.0;   // snap back to live view on resume
+            ClearMarkers();
+        }
+    }, ID_PAUSE);
+
+    menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+        auto_scale_ = true;
+    }, ID_AUTOSCALE);
+
+    menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+        if (paused_) {
+            // While paused: clear annotations only
+            ClearMarkers();
+        } else {
+            // While live: full state reset
+            dragging_      = false;
+            pan_offset_s_  = 0.0;
+            time_window_s_ = 10.0;
+            auto_scale_    = true;
+            if (HasCapture()) ReleaseMouse();
+            ClearMarkers();
+        }
+        Refresh();
+    }, ID_RESET);
+
+    PopupMenu(&menu);
+}
+
+void SpyPlot::OnMouseWheel(wxMouseEvent& e)
+{
+    // Positive rotation = scroll up = zoom in
+    const double factor = (e.GetWheelRotation() > 0) ? (1.0 / 1.15) : 1.15;
+
+    if (e.GetModifiers() & wxMOD_SHIFT) {
+        // Shift+scroll — scale Y axis around its midpoint, disable autoscale
+        auto_scale_ = false;
+        double mid   = (y_hi_ + y_lo_) / 2.0;
+        double half  = (y_hi_ - y_lo_) / 2.0 * factor;
+        y_lo_ = mid - half;
+        y_hi_ = mid + half;
+    } else {
+        // Scroll — scale X time window symmetrically around centre
+        time_window_s_ = std::max(0.1, time_window_s_ * factor);
+    }
+
+    Refresh();
 }
 
 // ── Paint ─────────────────────────────────────────────────────────────────────
@@ -300,12 +889,17 @@ void SpyPlot::OnPaint(wxPaintEvent&)
     DrawBackground(gc);
     DrawGrid(gc);
     DrawTrace(gc);
+    DrawMarkerLinks(gc);
+    DrawMarkers(gc);
     DrawLatestValue(gc);
 
     delete gc;
 
     // Axis labels drawn with plain DC (better text rendering than GC for small fonts)
     DrawAxesLabels(dc);
+
+    // Keep marker controls pinned to their data points
+    RepositionMarkerControls();
 }
 
 } // namespace spycat

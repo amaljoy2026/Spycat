@@ -16,7 +16,7 @@ int main()
         m.set("rpm", z);
         m.set("Body.vx", y - z);
         m.set("Body.vy", y + z);
-        std::this_thread::sleep_for(std::chrono::milliseconds(17));
+        std::this_thread::sleep_for(std::chrono::milliseconds(6));
     }
     return 0;
 }

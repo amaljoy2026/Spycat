@@ -26,7 +26,7 @@ struct Sample {
     double value;
 };
 
-class SpyPlot : public wxPanel
+class SpyPlot : public wxPanel, public DataObserver
 {
 public:
     SpyPlot(wxWindow* parent,
@@ -36,12 +36,17 @@ public:
             const wxPoint& pos        = wxDefaultPosition,
             const wxSize& size        = wxDefaultSize,
             long style                = wxTAB_TRAVERSAL | wxCLIP_CHILDREN);
+    ~SpyPlot() override;
 
-    // Change which key is plotted at runtime
+    // Replace all traces with a single key
     void SetKey(const std::string& key);
 
-    // Push a new value directly (still usable externally)
+    // Add a new trace; no-op if the key is already present
+    void AddTrace(const std::string& key);
+
+    // Push a value to the first trace (external use)
     void PushSample(double value);
+    void OnDataPoll() override;
 
     // Configuration
     void SetTimeWindow(double seconds) { time_window_s_ = seconds; }
@@ -68,15 +73,59 @@ private:
     // Events
     void OnPaint(wxPaintEvent&);
     void OnSize(wxSizeEvent& e) { Refresh(); e.Skip(); }
-    void OnPaintTimer(wxTimerEvent&) { Refresh(); }
-    void OnDataTimer(wxTimerEvent&);
+    void OnPaintTimer(wxTimerEvent&) { if (!paused_) Refresh(); }
+    void OnContextMenu(wxContextMenuEvent&);
+    void OnMouseWheel(wxMouseEvent&);
+    void OnLeftDown(wxMouseEvent&);
+    void OnLeftUp(wxMouseEvent&);
+    void OnLeftDClick(wxMouseEvent&);
+    void OnMouseMotion(wxMouseEvent&);
+    void OnKeyDown(wxKeyEvent&);
 
-    // Identity
-    std::string key_;
+    // Draw helpers
+    void DrawMarkers(wxGraphicsContext* gc);
+    void DrawMarkerLinks(wxGraphicsContext* gc);
+    void RepositionMarkerControls();
+
+    // Marker linking
+    void CreateMarkerLink(int from_idx, int to_idx);
+
+    // Helper: clear and destroy all markers and links (called on resume / reset)
+    void ClearMarkers();
+
+    // Per-trace state
+    struct Trace {
+        std::string                    key;
+        boost::circular_buffer<Sample> data { 36000 };
+        wxColour                       colour;
+        Trace(const std::string& k, const wxColour& c) : key(k), colour(c) {}
+    };
+
+    std::vector<Trace> traces_;
+
+    // ── Markers ───────────────────────────────────────────────────────────────
+    struct Marker {
+        size_t        trace_idx;
+        double        time_s;
+        double        value;
+        wxStaticText* x_ctrl;   // time display (top)
+        wxStaticText* y_ctrl;   // value display (below x_ctrl)
+    };
+
+    std::vector<Marker> markers_;
+    int dragging_marker_       = -1;   // index of marker being dragged, -1 if none
+    int shift_selected_marker_ = -1;   // first shift-clicked marker awaiting link partner
+
+    // ── Marker links ──────────────────────────────────────────────────────────
+    struct MarkerLink {
+        size_t        from_idx;
+        size_t        to_idx;
+        wxStaticText* dy_ctrl;   // Δy label (top)
+        wxStaticText* dx_ctrl;   // Δx label (below dy)
+    };
+
+    std::vector<MarkerLink> links_;
     App& app_;
-
-    // Ring buffer — 10 min at 60 Hz = 36000 samples, cap at that
-    boost::circular_buffer<Sample> data_ { 36000 };
 
     // Time
     using Clock = std::chrono::steady_clock;
@@ -102,8 +151,17 @@ private:
     static const wxColour COL_TEXT;
     static const wxColour COL_VALUE;
 
+    // Bounding rects of per-trace key labels painted in DrawAxesLabels.
+    // Populated each paint; used by OnContextMenu for hit-testing.
+    std::vector<wxRect> trace_label_rects_;
+
+    bool     paused_         = false;
+    bool     dragging_       = false;
+    wxPoint  last_drag_pos_;
+    double   pan_offset_s_   = 0.0;   // ≤ 0, horizontal pan while paused
+    double   frozen_time_s_  = 0.0;   // t_now captured at pause
+
     wxTimer paint_timer_;
-    wxTimer data_timer_;
 };
 
 } // namespace spycat
