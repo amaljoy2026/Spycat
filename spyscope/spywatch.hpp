@@ -5,6 +5,7 @@
 #include <wx/wx.h>
 #include <wx/scrolwin.h>
 #include <wx/gbsizer.h>
+#include <array>
 #include <string>
 #include <vector>
 #include <functional>
@@ -97,22 +98,36 @@ private:
         wxTextCtrl*   ovr_field   = nullptr;
     };
 
-    void       BuildHeaderRow(wxGridBagSizer* sizer);
-    RowWidgets BuildDataRow(wxGridBagSizer* sizer, int row, WatchEntry& entry);
-    void       BuildPortraitRows(wxSizer* sizer);
+    void              BuildHeaderRow(wxGridBagSizer* sizer, const std::array<int,4>& cw);
+    RowWidgets        BuildDataRow(wxGridBagSizer* sizer, int row, WatchEntry& entry, const std::array<int,4>& cw);
+    void              BuildPortraitRows(wxSizer* sizer);
+    std::array<int,4> ComputeColWidths() const;
 
     void OnOverrideToggle(bool checked, size_t index);
     void OnOverrideText(size_t index);
 
+    // Logical column indices — also used as col_widths_ subscripts.
+    // Multiply by 2 when used as a wxGridBagSizer column (odd positions = sashes).
     static constexpr int COL_KEY   = 0;
     static constexpr int COL_TYPE  = 1;
     static constexpr int COL_VALUE = 2;
     static constexpr int COL_OVR   = 3;
+
     static constexpr int ROW_H     = 28;
     static constexpr int HEADER_H  = 32;
+    static constexpr int SASH_W    = 5;    // sash drag-handle width (px)
+    static constexpr int COL_MIN_W = 40;   // minimum column width (px)
 
     App&                     app_;
     bool                     portrait_ = false;
+
+    // Proportional column weights for landscape mode (indexed by COL_* constants).
+    // Unnormalised — ratio determines width. Persists across RebuildRows calls.
+    float col_weights_[4] = { 180.f, 80.f, 140.f, 200.f };
+
+    // Live drag overlay — thin vertical line shown while a sash is being dragged.
+    // Owned by inner_; destroyed on drag release.
+    wxPanel*                 sash_overlay_ = nullptr;
 
     std::vector<WatchEntry>  entries_;
     std::vector<RowWidgets>  row_widgets_;

@@ -455,59 +455,62 @@ double SpyPlot::PlotValue(int py) const
 // ── Auto-scale ────────────────────────────────────────────────────────────────
 void SpyPlot::UpdateYRange()
 {
-    if (!auto_scale_) return;
-
     double t_now  = paused_ ? frozen_time_s_
                             : std::chrono::duration<double>(Clock::now() - start_).count();
     double t_left = t_now + pan_offset_s_ - time_window_s_;
 
-    if (shared_axis_) {
-        // All traces share one Y range
-        double lo =  std::numeric_limits<double>::max();
-        double hi = -std::numeric_limits<double>::max();
-        bool   any = false;
-
-        for (const auto& trace : traces_) {
-            for (const auto& s : trace.data) {
-                if (s.time_s < t_left) continue;
-                lo = std::min(lo, s.value);
-                hi = std::max(hi, s.value);
-                any = true;
-            }
-        }
-
-        if (!any) return;
-        if (lo == hi) { lo -= 1.0; hi += 1.0; }
-        double margin = (hi - lo) * 0.05;
-        y_lo_ = lo - margin;
-        y_hi_ = hi + margin;
-    } else {
-        // Per-trace Y ranges — compute independently, then sync axis to selected trace
-        per_trace_lo_.resize(traces_.size(), -1.0);
-        per_trace_hi_.resize(traces_.size(),  1.0);
-
-        for (size_t ti = 0; ti < traces_.size(); ++ti) {
+    if (auto_scale_) {
+        if (shared_axis_) {
+            // All traces share one Y range
             double lo =  std::numeric_limits<double>::max();
             double hi = -std::numeric_limits<double>::max();
             bool   any = false;
 
-            for (const auto& s : traces_[ti].data) {
-                if (s.time_s < t_left) continue;
-                lo = std::min(lo, s.value);
-                hi = std::max(hi, s.value);
-                any = true;
+            for (const auto& trace : traces_) {
+                for (const auto& s : trace.data) {
+                    if (s.time_s < t_left) continue;
+                    lo = std::min(lo, s.value);
+                    hi = std::max(hi, s.value);
+                    any = true;
+                }
             }
 
-            if (!any) continue;
+            if (!any) return;
             if (lo == hi) { lo -= 1.0; hi += 1.0; }
             double margin = (hi - lo) * 0.05;
-            per_trace_lo_[ti] = lo - margin;
-            per_trace_hi_[ti] = hi + margin;
-        }
+            y_lo_ = lo - margin;
+            y_hi_ = hi + margin;
+        } else {
+            // Per-trace Y ranges — compute independently
+            per_trace_lo_.resize(traces_.size(), -1.0);
+            per_trace_hi_.resize(traces_.size(),  1.0);
 
-        // Y axis labels reflect the selected trace's scale
-        size_t si = (traces_.empty()) ? 0 : std::min(selected_trace_idx_, traces_.size() - 1);
-        if (!traces_.empty()) {
+            for (size_t ti = 0; ti < traces_.size(); ++ti) {
+                double lo =  std::numeric_limits<double>::max();
+                double hi = -std::numeric_limits<double>::max();
+                bool   any = false;
+
+                for (const auto& s : traces_[ti].data) {
+                    if (s.time_s < t_left) continue;
+                    lo = std::min(lo, s.value);
+                    hi = std::max(hi, s.value);
+                    any = true;
+                }
+
+                if (!any) continue;
+                if (lo == hi) { lo -= 1.0; hi += 1.0; }
+                double margin = (hi - lo) * 0.05;
+                per_trace_lo_[ti] = lo - margin;
+                per_trace_hi_[ti] = hi + margin;
+            }
+        }
+    }
+
+    // In normalised mode, y_lo_/y_hi_ must always track the selected trace so
+    // axis labels are correct regardless of auto_scale_ state.
+    if (!shared_axis_ && !traces_.empty()) {
+        size_t si = std::min(selected_trace_idx_, traces_.size() - 1);
+        if (si < per_trace_lo_.size()) {
             y_lo_ = per_trace_lo_[si];
             y_hi_ = per_trace_hi_[si];
         }
@@ -806,11 +809,31 @@ void SpyPlot::OnMouseMotion(wxMouseEvent& e)
     pan_offset_s_ -= delta.x * time_per_px;
     pan_offset_s_  = std::min(0.0, pan_offset_s_);   // clamp: can't pan past now
 
-    // Vertical — shift y range
-    double value_per_px = (y_hi_ - y_lo_) / plot_h;
-    double dy = delta.y * value_per_px;   // screen y grows downward, so no negation needed
-    y_lo_ += dy;
-    y_hi_ += dy;
+    // Vertical — shift y range.
+    // In normalised mode each trace has its own scale; shift all per-trace
+    // ranges independently, then sync y_lo_/y_hi_ from the selected trace.
+    if (!shared_axis_) {
+        for (size_t ti = 0; ti < traces_.size(); ++ti) {
+            if (ti >= per_trace_lo_.size()) continue;
+            double range = per_trace_hi_[ti] - per_trace_lo_[ti];
+            double vpp   = (range == 0.0) ? 1.0 : range / plot_h;
+            double dy    = delta.y * vpp;
+            per_trace_lo_[ti] += dy;
+            per_trace_hi_[ti] += dy;
+        }
+        // Keep axis labels in sync with the selected trace
+        size_t si = std::min(selected_trace_idx_,
+                             traces_.empty() ? 0UL : traces_.size() - 1);
+        if (si < per_trace_lo_.size()) {
+            y_lo_ = per_trace_lo_[si];
+            y_hi_ = per_trace_hi_[si];
+        }
+    } else {
+        double value_per_px = (y_hi_ - y_lo_) / plot_h;
+        double dy = delta.y * value_per_px;
+        y_lo_ += dy;
+        y_hi_ += dy;
+    }
 
     Refresh();
 }

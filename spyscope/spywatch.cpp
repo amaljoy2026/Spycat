@@ -143,6 +143,11 @@ SpyWatch::SpyWatch(wxWindow* parent, App& app, wxWindowID id)
     Bind(wxEVT_SIZE, &SpyWatch::OnSize, this);
 
     SetDropTarget(new WatchDropTarget(this));
+
+    // Defer a second RebuildRows until after the event loop starts and the
+    // window has received its first SIZE event — by then GetClientSize() is
+    // valid and ComputeColWidths() produces correct pixel budgets.
+    CallAfter([this]() { RebuildRows(); });
 }
 
 // ── Destructor ────────────────────────────────────────────────────────────────
@@ -265,10 +270,34 @@ void SpyWatch::MoveKeyToRow(const std::string& key, int target_row)
 }
 
 
+// ── Column width helpers ──────────────────────────────────────────────────────
+
+std::array<int,4> SpyWatch::ComputeColWidths() const
+{
+    // Total pixel budget for data columns = client width minus three sash panels.
+    int available = GetClientSize().x - 3 * SASH_W;
+    if (available < 4 * COL_MIN_W)
+        available = 4 * COL_MIN_W;
+
+    float total_w = col_weights_[0] + col_weights_[1]
+                  + col_weights_[2] + col_weights_[3];
+
+    std::array<int,4> widths;
+    int used = 0;
+    for (int i = 0; i < 3; ++i) {
+        widths[i] = std::max(COL_MIN_W, (int)(col_weights_[i] / total_w * available));
+        used += widths[i];
+    }
+    // Last column absorbs rounding remainder.
+    widths[3] = std::max(COL_MIN_W, available - used);
+    return widths;
+}
+
 // ── Layout ────────────────────────────────────────────────────────────────────
 
 void SpyWatch::RebuildRows()
 {
+    auto cw = ComputeColWidths();
     inner_->DestroyChildren();
     row_widgets_.clear();
     sizer_ = nullptr;
@@ -281,11 +310,11 @@ void SpyWatch::RebuildRows()
     } else {
         sizer_ = new wxGridBagSizer(0, 0);
         sizer_->SetEmptyCellSize({ 0, 0 });
-        BuildHeaderRow(sizer_);
+        BuildHeaderRow(sizer_, cw);
         for (size_t i = 0; i < entries_.size(); ++i)
             row_widgets_.push_back(
-                BuildDataRow(sizer_, static_cast<int>(i) + 1, entries_[i]));
-        sizer_->AddGrowableCol(COL_KEY);
+                BuildDataRow(sizer_, static_cast<int>(i) + 1, entries_[i], cw));
+        sizer_->AddGrowableCol(COL_KEY * 2);
         inner_->SetSizerAndFit(sizer_);
     }
 
@@ -294,11 +323,12 @@ void SpyWatch::RebuildRows()
     app_.GetDockPanel()->GetDock().Update();
 }
 
-void SpyWatch::BuildHeaderRow(wxGridBagSizer* sizer)
+void SpyWatch::BuildHeaderRow(wxGridBagSizer* sizer, const std::array<int,4>& cw)
 {
-    auto make_header = [&](const wxString& text, int col, int width) {
+    // Header cell at sizer column (logical_col * 2).
+    auto make_header = [&](const wxString& text, int col) {
         wxPanel* cell = new wxPanel(inner_, wxID_ANY,
-                                    wxDefaultPosition, wxSize(width, HEADER_H));
+                                    wxDefaultPosition, wxSize(cw[col], HEADER_H));
         cell->SetBackgroundColour(app_.GetTheme().GetHighlightColor());
 
         wxStaticText* lbl = new wxStaticText(cell, wxID_ANY, text,
@@ -312,17 +342,120 @@ void SpyWatch::BuildHeaderRow(wxGridBagSizer* sizer)
         s->Add(lbl, 1, wxALIGN_CENTER_VERTICAL);
         cell->SetSizer(s);
 
-        sizer->Add(cell, wxGBPosition(0, col), wxGBSpan(1, 1), wxEXPAND);
+        sizer->Add(cell, wxGBPosition(0, col * 2), wxGBSpan(1, 1), wxEXPAND);
     };
 
-    make_header("Key",      COL_KEY,   180);
-    make_header("Type",     COL_TYPE,   80);
-    make_header("Value",    COL_VALUE, 140);
-    make_header("Override", COL_OVR,   200);
+    // Sash between left_col and right_col.
+    // Dragging right → left_col grows, right_col shrinks (and vice-versa).
+    // Shows a live 2 px overlay line during drag; commits weights on release.
+    auto make_sash = [&](int sizer_col, int left_col, int right_col) {
+        wxPanel* sash = new wxPanel(inner_, wxID_ANY,
+                                    wxDefaultPosition, wxSize(SASH_W, HEADER_H));
+        sash->SetBackgroundColour(app_.GetTheme().GetHighlightColor());
+        sash->SetCursor(wxCursor(wxCURSOR_SIZEWE));
+
+        // ── Paint: centre line + 3-dot grip ──────────────────────────────
+        sash->Bind(wxEVT_PAINT, [sash](wxPaintEvent&) {
+            wxPaintDC dc(sash);
+            const int w  = sash->GetSize().x;
+            const int h  = sash->GetSize().y;
+            const int cx = w / 2;
+
+            dc.SetBackground(wxBrush(WATCH_HEADER_BG));
+            dc.Clear();
+
+            dc.SetPen(wxPen(wxColour(0x33, 0x88, 0x33), 1));
+            dc.DrawLine(cx, 2, cx, h - 2);
+
+            dc.SetPen(*wxTRANSPARENT_PEN);
+            dc.SetBrush(wxBrush(WATCH_HEADER_FG));
+            const int mid_y = h / 2;
+            for (int d = -1; d <= 1; ++d)
+                dc.DrawCircle(cx, mid_y + d * 5, 1);
+        });
+
+        // ── Per-sash drag state ───────────────────────────────────────────
+        struct SashState {
+            int   start_screen_x  = 0;
+            int   start_overlay_x = 0;
+            float left_w0         = 0.f;
+            float right_w0        = 0.f;
+            int   left_px0        = 0;   // pixel width of left_col at drag start
+            int   right_px0       = 0;   // pixel width of right_col at drag start
+        };
+        auto state = std::make_shared<SashState>();
+
+        // ── LEFT_DOWN: record start, create overlay ───────────────────────
+        sash->Bind(wxEVT_LEFT_DOWN, [this, sash, left_col, right_col, state](wxMouseEvent&) {
+            int available = GetClientSize().x - 3 * SASH_W;
+            float total_w = col_weights_[0] + col_weights_[1]
+                          + col_weights_[2] + col_weights_[3];
+
+            state->start_screen_x  = wxGetMousePosition().x;
+            state->start_overlay_x = sash->GetPosition().x + SASH_W / 2 - 1;
+            state->left_w0         = col_weights_[left_col];
+            state->right_w0        = col_weights_[right_col];
+            state->left_px0        = (int)(col_weights_[left_col]  / total_w * available);
+            state->right_px0       = (int)(col_weights_[right_col] / total_w * available);
+
+            if (sash_overlay_) { sash_overlay_->Destroy(); sash_overlay_ = nullptr; }
+            sash_overlay_ = new wxPanel(inner_, wxID_ANY,
+                                        wxPoint(state->start_overlay_x, 0),
+                                        wxSize(2, inner_->GetSize().y));
+            sash_overlay_->SetBackgroundColour(wxColour(0x44, 0xAA, 0x44));
+            sash_overlay_->Raise();
+            sash->CaptureMouse();
+        });
+
+        // ── MOTION: move overlay live, clamped to adjacent column floors ──
+        sash->Bind(wxEVT_MOTION, [this, sash, state](wxMouseEvent&) {
+            if (!sash->HasCapture() || !sash_overlay_) return;
+            int raw   = wxGetMousePosition().x - state->start_screen_x;
+            int delta = std::clamp(raw,
+                                   -(state->left_px0  - COL_MIN_W),
+                                     state->right_px0 - COL_MIN_W);
+            sash_overlay_->Move(state->start_overlay_x + delta, 0);
+        });
+
+        // ── LEFT_UP: commit weight change, destroy overlay ────────────────
+        sash->Bind(wxEVT_LEFT_UP, [this, sash, left_col, right_col, state](wxMouseEvent&) {
+            if (!sash->HasCapture()) return;
+            int raw = wxGetMousePosition().x - state->start_screen_x;
+            sash->ReleaseMouse();
+            if (sash_overlay_) { sash_overlay_->Destroy(); sash_overlay_ = nullptr; }
+
+            int available = GetClientSize().x - 3 * SASH_W;
+            if (available <= 0) return;
+
+            // Apply the same clamp used during MOTION before converting to weights.
+            int delta = std::clamp(raw,
+                                   -(state->left_px0  - COL_MIN_W),
+                                     state->right_px0 - COL_MIN_W);
+
+            float total_w = col_weights_[0] + col_weights_[1]
+                          + col_weights_[2] + col_weights_[3];
+            float dw = (float)delta / available * total_w;
+
+            col_weights_[left_col]  = state->left_w0  + dw;
+            col_weights_[right_col] = state->right_w0 - dw;
+            RebuildRows();
+        });
+
+        sizer->Add(sash, wxGBPosition(0, sizer_col), wxGBSpan(1, 1), wxEXPAND);
+    };
+
+    make_header("Key",      COL_KEY);
+    make_sash(COL_KEY * 2 + 1,   COL_KEY,   COL_TYPE);
+    make_header("Type",     COL_TYPE);
+    make_sash(COL_TYPE * 2 + 1,  COL_TYPE,  COL_VALUE);
+    make_header("Value",    COL_VALUE);
+    make_sash(COL_VALUE * 2 + 1, COL_VALUE, COL_OVR);
+    make_header("Override", COL_OVR);
 }
 
 SpyWatch::RowWidgets SpyWatch::BuildDataRow(wxGridBagSizer* sizer,
-                                             int row, WatchEntry& entry)
+                                             int row, WatchEntry& entry,
+                                             const std::array<int,4>& cw)
 {
     RowWidgets rw;
     wxColour bg = (row % 2 == 0) ? app_.GetTheme().GetAltBackgroundColor() : app_.GetTheme().GetPrimaryBackgroundColor();
@@ -361,6 +494,7 @@ SpyWatch::RowWidgets SpyWatch::BuildDataRow(wxGridBagSizer* sizer,
         wxPanel* cell = new wxPanel(inner_, wxID_ANY,
                                     wxDefaultPosition, wxSize(-1, ROW_H));
         cell->SetBackgroundColour(bg);
+        cell->SetMinSize(wxSize(COL_MIN_W, ROW_H));
 
         rw.key_label = new wxStaticText(cell, wxID_ANY,
                                          wxString::FromUTF8(entry.key),
@@ -368,12 +502,13 @@ SpyWatch::RowWidgets SpyWatch::BuildDataRow(wxGridBagSizer* sizer,
                                          wxST_ELLIPSIZE_END);
         rw.key_label->SetFont(app_.GetTheme().GetFont());
         rw.key_label->SetForegroundColour(app_.GetTheme().GetPrimaryTextColor());
+        rw.key_label->SetMinSize(wxSize(0, -1));
 
         auto* s = new wxBoxSizer(wxHORIZONTAL);
         s->AddSpacer(8);
         s->Add(rw.key_label, 1, wxALIGN_CENTER_VERTICAL);
         cell->SetSizer(s);
-        sizer->Add(cell, wxGBPosition(row, COL_KEY), wxGBSpan(1,1), wxEXPAND);
+        sizer->Add(cell, wxGBPosition(row, COL_KEY * 2), wxGBSpan(1,1), wxEXPAND);
         bind_ctx(cell);  bind_ctx(rw.key_label);
         bind_drag(cell); bind_drag(rw.key_label);
     }
@@ -381,7 +516,7 @@ SpyWatch::RowWidgets SpyWatch::BuildDataRow(wxGridBagSizer* sizer,
     // ── Type ──────────────────────────────────────────────────────────────
     {
         wxPanel* cell = new wxPanel(inner_, wxID_ANY,
-                                    wxDefaultPosition, wxSize(80, ROW_H));
+                                    wxDefaultPosition, wxSize(cw[COL_TYPE], ROW_H));
         cell->SetBackgroundColour(bg);
 
         rw.type_label = new wxStaticText(cell, wxID_ANY,
@@ -393,14 +528,14 @@ SpyWatch::RowWidgets SpyWatch::BuildDataRow(wxGridBagSizer* sizer,
         s->AddSpacer(8);
         s->Add(rw.type_label, 1, wxALIGN_CENTER_VERTICAL);
         cell->SetSizer(s);
-        sizer->Add(cell, wxGBPosition(row, COL_TYPE), wxGBSpan(1,1), wxEXPAND);
+        sizer->Add(cell, wxGBPosition(row, COL_TYPE * 2), wxGBSpan(1,1), wxEXPAND);
         bind_ctx(cell); bind_ctx(rw.type_label);
     }
 
     // ── Value ─────────────────────────────────────────────────────────────
     {
         wxPanel* cell = new wxPanel(inner_, wxID_ANY,
-                                    wxDefaultPosition, wxSize(140, ROW_H));
+                                    wxDefaultPosition, wxSize(cw[COL_VALUE], ROW_H));
         cell->SetBackgroundColour(bg);
 
         rw.value_label = new wxStaticText(cell, wxID_ANY,
@@ -415,14 +550,14 @@ SpyWatch::RowWidgets SpyWatch::BuildDataRow(wxGridBagSizer* sizer,
         s->AddSpacer(8);
         s->Add(rw.value_label, 1, wxALIGN_CENTER_VERTICAL);
         cell->SetSizer(s);
-        sizer->Add(cell, wxGBPosition(row, COL_VALUE), wxGBSpan(1,1), wxEXPAND);
+        sizer->Add(cell, wxGBPosition(row, COL_VALUE * 2), wxGBSpan(1,1), wxEXPAND);
         bind_ctx(cell); bind_ctx(rw.value_label);
     }
 
     // ── Override (ToggleBox + text field) ─────────────────────────────────
     {
         wxPanel* cell = new wxPanel(inner_, wxID_ANY,
-                                    wxDefaultPosition, wxSize(200, ROW_H));
+                                    wxDefaultPosition, wxSize(cw[COL_OVR], ROW_H));
         cell->SetBackgroundColour(bg);
 
         size_t idx = static_cast<size_t>(row) - 1;
@@ -453,7 +588,7 @@ SpyWatch::RowWidgets SpyWatch::BuildDataRow(wxGridBagSizer* sizer,
         s->Add(border, 0, wxALIGN_CENTER_VERTICAL);
         s->AddSpacer(6);
         cell->SetSizer(s);
-        sizer->Add(cell, wxGBPosition(row, COL_OVR), wxGBSpan(1,1), wxEXPAND);
+        sizer->Add(cell, wxGBPosition(row, COL_OVR * 2), wxGBSpan(1,1), wxEXPAND);
         bind_ctx(cell);
 
         rw.ovr_field->Bind(wxEVT_TEXT_ENTER, [this, idx](wxCommandEvent&) {
