@@ -28,9 +28,9 @@ wxPanel *App::CreateTopbar()
 
     // Settings button — top-right corner
     auto* settings_btn = new wxButton(topbar, wxID_ANY, "⚙",
-                                      wxDefaultPosition, wxSize(36, 36),
+                                      wxDefaultPosition, wxSize(32, 32),
                                       wxBORDER_NONE);
-    settings_btn->SetFont(wxFont(18, wxFONTFAMILY_DEFAULT,
+    settings_btn->SetFont(wxFont(30, wxFONTFAMILY_DEFAULT,
                                  wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
     settings_btn->SetForegroundColour(GetTheme().GetPrimaryTextColor());
     settings_btn->SetBackgroundColour(GetTheme().GetSecondaryBackgroundColor());
@@ -38,6 +38,7 @@ wxPanel *App::CreateTopbar()
 
     settings_btn->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
         SpySettings dlg(frame_, *this);
+        dlg.CentreOnParent();
         if (dlg.ShowModal() != wxID_OK) return;
 
         wxString new_name = dlg.GetSegmentName();

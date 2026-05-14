@@ -40,7 +40,7 @@ SpySettings::SpySettings(wxWindow* parent, App& app)
     name_row->Add(name_border, 1, wxALIGN_CENTER_VERTICAL | wxEXPAND);
 
     // ── Clear App Data ────────────────────────────────────────────────────────
-    // 1 px HighlightColor border around the button
+    // HighlightColor border panel — padding gives a visible margin all round
     auto* clear_border = new wxPanel(this, wxID_ANY);
     clear_border->SetBackgroundColour(app_.GetTheme().GetHighlightColor());
 
@@ -50,9 +50,29 @@ SpySettings::SpySettings(wxWindow* parent, App& app)
     clear_btn->SetForegroundColour(app_.GetTheme().GetPrimaryTextColor());
     clear_btn->SetBackgroundColour(app_.GetTheme().GetSecondaryBackgroundColor());
 
+
     auto* clear_border_sizer = new wxBoxSizer(wxVERTICAL);
-    clear_border_sizer->Add(clear_btn, 0, wxALL, 1);
-    clear_border->SetSizerAndFit(clear_border_sizer);
+    clear_border_sizer->Add(clear_btn, 1, wxEXPAND | wxALL, 1);   // 1 px gap = the border itself
+    clear_border->SetSizer(clear_border_sizer);
+
+    // Hover: fill with highlight colour, revert on leave
+    const wxColour hlCol  = app_.GetTheme().GetHighlightColor();
+    const wxColour hlText = app_.GetTheme().GetHighlightTextColor();
+    const wxColour bgCol  = app_.GetTheme().GetSecondaryBackgroundColor();
+    const wxColour fgCol  = app_.GetTheme().GetPrimaryTextColor();
+
+    clear_btn->Bind(wxEVT_ENTER_WINDOW, [clear_btn, hlCol, hlText](wxMouseEvent& e) {
+        clear_btn->SetBackgroundColour(hlCol);
+        clear_btn->SetForegroundColour(hlText);
+        clear_btn->Refresh();
+        e.Skip();
+    });
+    clear_btn->Bind(wxEVT_LEAVE_WINDOW, [clear_btn, bgCol, fgCol](wxMouseEvent& e) {
+        clear_btn->SetBackgroundColour(bgCol);
+        clear_btn->SetForegroundColour(fgCol);
+        clear_btn->Refresh();
+        e.Skip();
+    });
 
     clear_btn->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
         wxString seg = name_ctrl_->GetValue().Trim();
