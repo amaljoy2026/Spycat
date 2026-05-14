@@ -24,7 +24,7 @@ private:
     wxColour p_highlight_{0xb5, 0xe6, 0x1d};
     wxColour p_background_{0x2d2d2d};
     wxColour s_background_{0x1d, 0x1e, 0x1d};
-    wxColour t_background_{0x5e, 0x66, 0x48};
+    wxColour t_background_{0x2d2d2d};//{0x5e, 0x66, 0x48};
     wxColour p_text_{0xFFFFFF};
     wxColour h_text_{0x000000};
     wxColour grid_color_{0xFFFFFF};

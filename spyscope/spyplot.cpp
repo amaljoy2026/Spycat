@@ -48,7 +48,6 @@ public:
 
     bool OnDropText(wxCoord, wxCoord, const wxString& text) override
     {
-        std::cout << text << std::endl;
         for (const auto& key : wxSplit(text, '\n'))
             if (!key.IsEmpty()) plot_->AddTrace(key.ToStdString());
         return true;
@@ -67,6 +66,8 @@ SpyPlot::SpyPlot(wxWindow* parent, App& app, const std::string& key,
     , paint_timer_(this)
 {
     traces_.emplace_back(key, kTracePalette[0]);
+    per_trace_lo_.push_back(-1.0);
+    per_trace_hi_.push_back( 1.0);
 
     SetBackgroundStyle(wxBG_STYLE_PAINT);   // required for wxAutoBufferedPaintDC
     SetBackgroundColour(app_.GetTheme().GetPrimaryBackgroundColor());
@@ -99,6 +100,9 @@ void SpyPlot::SetKey(const std::string& key)
 {
     traces_.clear();
     traces_.emplace_back(key, kTracePalette[0]);
+    per_trace_lo_ = { -1.0 };
+    per_trace_hi_ = {  1.0 };
+    selected_trace_idx_ = 0;
 }
 
 void SpyPlot::AddTrace(const std::string& key)
@@ -107,6 +111,8 @@ void SpyPlot::AddTrace(const std::string& key)
         if (t.key == key) return;
 
     traces_.emplace_back(key, kTracePalette[traces_.size() % kPaletteSize]);
+    per_trace_lo_.push_back(-1.0);
+    per_trace_hi_.push_back( 1.0);
 
     // On second trace, rename the AUI pane to the generic "Plot"
     if (traces_.size() == 2) {
@@ -171,7 +177,7 @@ void SpyPlot::OnLeftDClick(wxMouseEvent& e)
         for (const auto& s : traces_[ti].data) {
             if (s.time_s < t_left) continue;
             double dx   = pos.x - ClientX(s.time_s);
-            double dy   = pos.y - ClientY(s.value);
+            double dy   = pos.y - ClientY(ti, s.value);
             double dist = std::sqrt(dx*dx + dy*dy);
             if (dist < best_dist) {
                 best_dist  = dist;
@@ -223,7 +229,7 @@ void SpyPlot::DrawMarkers(wxGraphicsContext* gc)
     for (size_t i = 0; i < markers_.size(); ++i) {
         if (markers_[i].trace_idx >= traces_.size()) continue;
         double cx = ClientX(markers_[i].time_s);
-        double cy = ClientY(markers_[i].value);
+        double cy = ClientY(markers_[i].trace_idx, markers_[i].value);
 
         // Highlight ring when this marker is the first shift-selected endpoint
         if (static_cast<int>(i) == shift_selected_marker_) {
@@ -247,7 +253,7 @@ void SpyPlot::RepositionMarkerControls()
     // ── Per-marker controls ───────────────────────────────────────────────────
     for (auto& m : markers_) {
         int cx = static_cast<int>(ClientX(m.time_s));
-        int cy = static_cast<int>(ClientY(m.value));
+        int cy = static_cast<int>(ClientY(m.trace_idx, m.value));
 
         // x_ctrl sits immediately above the circle; y_ctrl is above x_ctrl
         int x_top = cy - static_cast<int>(MARKER_RADIUS) - MARKER_CTRL_GAP - MARKER_CTRL_H;
@@ -269,7 +275,7 @@ void SpyPlot::RepositionMarkerControls()
 
         // Midpoint in screen coords
         int cx = static_cast<int>((ClientX(from.time_s) + ClientX(to.time_s)) / 2.0);
-        int cy = static_cast<int>((ClientY(from.value)  + ClientY(to.value))  / 2.0);
+        int cy = static_cast<int>((ClientY(from.trace_idx, from.value) + ClientY(to.trace_idx, to.value)) / 2.0);
 
         // Stack labels above the midpoint dot (same convention as marker controls)
         int dx_top = cy - MARKER_CTRL_GAP - MARKER_CTRL_H;
@@ -354,8 +360,8 @@ void SpyPlot::DrawMarkerLinks(wxGraphicsContext* gc)
         const Marker& from = markers_[link.from_idx];
         const Marker& to   = markers_[link.to_idx];
 
-        double x1 = ClientX(from.time_s), y1 = ClientY(from.value);
-        double x2 = ClientX(to.time_s),   y2 = ClientY(to.value);
+        double x1 = ClientX(from.time_s), y1 = ClientY(from.trace_idx, from.value);
+        double x2 = ClientX(to.time_s),   y2 = ClientY(to.trace_idx,  to.value);
 
         // Dashed white line
         gc->SetPen(gc->CreatePen(
@@ -409,10 +415,24 @@ double SpyPlot::ClientX(double time_s) const
 
 double SpyPlot::ClientY(double value) const
 {
-    double plot_h  = GetSize().y - MARGIN_T - MARGIN_B;
-    double range   = (y_hi_ == y_lo_) ? 1.0 : (y_hi_ - y_lo_);
-    // y=0 at bottom: flip so higher value = higher on screen
+    double plot_h = GetSize().y - MARGIN_T - MARGIN_B;
+    double range  = (y_hi_ == y_lo_) ? 1.0 : (y_hi_ - y_lo_);
     return MARGIN_T + (1.0 - (value - y_lo_) / range) * plot_h;
+}
+
+double SpyPlot::ClientY(size_t trace_idx, double value) const
+{
+    double lo, hi;
+    if (!shared_axis_ && trace_idx < per_trace_lo_.size()) {
+        lo = per_trace_lo_[trace_idx];
+        hi = per_trace_hi_[trace_idx];
+    } else {
+        lo = y_lo_;
+        hi = y_hi_;
+    }
+    double plot_h = GetSize().y - MARGIN_T - MARGIN_B;
+    double range  = (hi == lo) ? 1.0 : (hi - lo);
+    return MARGIN_T + (1.0 - (value - lo) / range) * plot_h;
 }
 
 double SpyPlot::PlotTime(int px) const
@@ -437,29 +457,61 @@ void SpyPlot::UpdateYRange()
 {
     if (!auto_scale_) return;
 
-    double t_now   = paused_ ? frozen_time_s_
-                             : std::chrono::duration<double>(Clock::now() - start_).count();
-    double t_left  = t_now + pan_offset_s_ - time_window_s_;
+    double t_now  = paused_ ? frozen_time_s_
+                            : std::chrono::duration<double>(Clock::now() - start_).count();
+    double t_left = t_now + pan_offset_s_ - time_window_s_;
 
-    double lo =  std::numeric_limits<double>::max();
-    double hi = -std::numeric_limits<double>::max();
-    bool   any = false;
+    if (shared_axis_) {
+        // All traces share one Y range
+        double lo =  std::numeric_limits<double>::max();
+        double hi = -std::numeric_limits<double>::max();
+        bool   any = false;
 
-    for (const auto& trace : traces_) {
-        for (const auto& s : trace.data) {
-            if (s.time_s < t_left) continue;
-            lo = std::min(lo, s.value);
-            hi = std::max(hi, s.value);
-            any = true;
+        for (const auto& trace : traces_) {
+            for (const auto& s : trace.data) {
+                if (s.time_s < t_left) continue;
+                lo = std::min(lo, s.value);
+                hi = std::max(hi, s.value);
+                any = true;
+            }
+        }
+
+        if (!any) return;
+        if (lo == hi) { lo -= 1.0; hi += 1.0; }
+        double margin = (hi - lo) * 0.05;
+        y_lo_ = lo - margin;
+        y_hi_ = hi + margin;
+    } else {
+        // Per-trace Y ranges — compute independently, then sync axis to selected trace
+        per_trace_lo_.resize(traces_.size(), -1.0);
+        per_trace_hi_.resize(traces_.size(),  1.0);
+
+        for (size_t ti = 0; ti < traces_.size(); ++ti) {
+            double lo =  std::numeric_limits<double>::max();
+            double hi = -std::numeric_limits<double>::max();
+            bool   any = false;
+
+            for (const auto& s : traces_[ti].data) {
+                if (s.time_s < t_left) continue;
+                lo = std::min(lo, s.value);
+                hi = std::max(hi, s.value);
+                any = true;
+            }
+
+            if (!any) continue;
+            if (lo == hi) { lo -= 1.0; hi += 1.0; }
+            double margin = (hi - lo) * 0.05;
+            per_trace_lo_[ti] = lo - margin;
+            per_trace_hi_[ti] = hi + margin;
+        }
+
+        // Y axis labels reflect the selected trace's scale
+        size_t si = (traces_.empty()) ? 0 : std::min(selected_trace_idx_, traces_.size() - 1);
+        if (!traces_.empty()) {
+            y_lo_ = per_trace_lo_[si];
+            y_hi_ = per_trace_hi_[si];
         }
     }
-
-    if (!any) return;
-    if (lo == hi) { lo -= 1.0; hi += 1.0; }
-
-    double margin = (hi - lo) * 0.05;
-    y_lo_ = lo - margin;
-    y_hi_ = hi + margin;
 }
 
 // ── Drawing ───────────────────────────────────────────────────────────────────
@@ -502,7 +554,12 @@ void SpyPlot::DrawGrid(wxGraphicsContext* gc)
 void SpyPlot::DrawAxesLabels(wxDC& dc)
 {
     wxSize sz = GetSize();
-    dc.SetTextForeground(app_.GetTheme().GetHighlightColor());
+
+    // Y axis colour: selected trace colour in normalised mode, theme highlight otherwise
+    const wxColour& y_axis_col = (!shared_axis_ && selected_trace_idx_ < traces_.size())
+                                 ? traces_[selected_trace_idx_].colour
+                                 : app_.GetTheme().GetHighlightColor();
+    dc.SetTextForeground(y_axis_col);
     dc.SetFont(app_.GetTheme().GetBoldFont());
 
     double plot_h = sz.y - MARGIN_T - MARGIN_B;
@@ -552,10 +609,13 @@ void SpyPlot::DrawAxesLabels(wxDC& dc)
     trace_label_rects_.clear();
     dc.SetFont(wxFont(10, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_BOLD));
     int label_y = MARGIN_T + 2;
-    for (const auto& trace : traces_) {
+    for (size_t ti = 0; ti < traces_.size(); ++ti) {
+        const auto& trace = traces_[ti];
         dc.SetTextForeground(trace.colour);
         wxString name = wxString::FromUTF8(trace.key);
-        wxSize   ext  = dc.GetTextExtent(name);
+        if (!shared_axis_ && ti == selected_trace_idx_)
+            name = "> " + name;
+        wxSize ext = dc.GetTextExtent(name);
         dc.DrawText(name, MARGIN_L + 4, label_y);
         trace_label_rects_.emplace_back(MARGIN_L + 4, label_y, ext.x, ext.y);
         label_y += ext.y + 2;
@@ -568,7 +628,8 @@ void SpyPlot::DrawTrace(wxGraphicsContext* gc)
                             : std::chrono::duration<double>(Clock::now() - start_).count();
     double t_left = t_now + pan_offset_s_ - time_window_s_;
 
-    for (const auto& trace : traces_) {
+    for (size_t ti = 0; ti < traces_.size(); ++ti) {
+        const auto& trace = traces_[ti];
         if (trace.data.size() < 2) continue;
 
         gc->SetPen(wxPen(trace.colour, 2));
@@ -578,7 +639,7 @@ void SpyPlot::DrawTrace(wxGraphicsContext* gc)
         for (const auto& s : trace.data) {
             if (s.time_s < t_left) continue;
             double cx = ClientX(s.time_s);
-            double cy = ClientY(s.value);
+            double cy = ClientY(ti, s.value);
             if (first) { path.MoveToPoint(cx, cy); first = false; }
             else        path.AddLineToPoint(cx, cy);
         }
@@ -590,9 +651,10 @@ void SpyPlot::DrawTrace(wxGraphicsContext* gc)
 
 void SpyPlot::DrawLatestValue(wxGraphicsContext* gc)
 {
-    for (const auto& trace : traces_) {
+    for (size_t ti = 0; ti < traces_.size(); ++ti) {
+        const auto& trace = traces_[ti];
         if (trace.data.empty()) continue;
-        double cy = ClientY(trace.data.back().value);
+        double cy = ClientY(ti, trace.data.back().value);
         gc->SetPen(wxPen(trace.colour, 2));
         gc->StrokeLine(MARGIN_L - 6, cy, MARGIN_L, cy);
     }
@@ -602,9 +664,37 @@ void SpyPlot::DrawLatestValue(wxGraphicsContext* gc)
 
 void SpyPlot::OnLeftDown(wxMouseEvent& e)
 {
-    if (!paused_) { e.Skip(); return; }
-
     wxPoint pos = e.GetPosition();
+
+    // In normalised mode, left-click near a trace line selects it (sets axis scale).
+    // Works whether live or paused. Checked before the paused guard.
+    if (!shared_axis_ && !e.ShiftDown()) {
+        static constexpr double TRACE_HIT_PX = 15.0;
+        double t_now  = paused_ ? frozen_time_s_
+                                : std::chrono::duration<double>(Clock::now() - start_).count();
+        double t_left = t_now + pan_offset_s_ - time_window_s_;
+        bool found = false;
+
+        for (size_t ti = 0; ti < traces_.size() && !found; ++ti) {
+            for (const auto& s : traces_[ti].data) {
+                if (s.time_s < t_left) continue;
+                double dx = pos.x - ClientX(s.time_s);
+                double dy = pos.y - ClientY(ti, s.value);
+                if (std::sqrt(dx*dx + dy*dy) <= TRACE_HIT_PX) {
+                    selected_trace_idx_ = ti;
+                    found = true;
+                    break;
+                }
+            }
+        }
+
+        if (found) {
+            Refresh();
+            if (!paused_) return;   // live: only select trace, don't start pan
+        }
+    }
+
+    if (!paused_) { e.Skip(); return; }
 
     // Any non-shift click cancels a pending link selection
     if (!e.ShiftDown() && shift_selected_marker_ >= 0) {
@@ -616,7 +706,7 @@ void SpyPlot::OnLeftDown(wxMouseEvent& e)
     if (e.ShiftDown()) {
         for (int i = 0; i < static_cast<int>(markers_.size()); ++i) {
             double dx = pos.x - ClientX(markers_[i].time_s);
-            double dy = pos.y - ClientY(markers_[i].value);
+            double dy = pos.y - ClientY(markers_[i].trace_idx, markers_[i].value);
             if (std::sqrt(dx*dx + dy*dy) <= MARKER_HIT_PX) {
                 if (shift_selected_marker_ < 0) {
                     // First endpoint selected — highlight it
@@ -639,7 +729,7 @@ void SpyPlot::OnLeftDown(wxMouseEvent& e)
     // Marker drag takes priority — check circle hit first
     for (int i = 0; i < static_cast<int>(markers_.size()); ++i) {
         double dx = pos.x - ClientX(markers_[i].time_s);
-        double dy = pos.y - ClientY(markers_[i].value);
+        double dy = pos.y - ClientY(markers_[i].trace_idx, markers_[i].value);
         if (std::sqrt(dx*dx + dy*dy) <= MARKER_HIT_PX) {
             dragging_marker_ = i;
             CaptureMouse();
@@ -784,6 +874,10 @@ void SpyPlot::OnContextMenu(wxContextMenuEvent& e)
             shift_selected_marker_ = -1;
 
             traces_.erase(traces_.begin() + i);
+            if (i < per_trace_lo_.size()) per_trace_lo_.erase(per_trace_lo_.begin() + i);
+            if (i < per_trace_hi_.size()) per_trace_hi_.erase(per_trace_hi_.begin() + i);
+            if (!traces_.empty() && selected_trace_idx_ >= traces_.size())
+                selected_trace_idx_ = traces_.size() - 1;
             trace_label_rects_.clear();   // stale — will repopulate on next paint
 
             // If back to a single trace, restore the leaf name as the pane caption
@@ -808,15 +902,19 @@ void SpyPlot::OnContextMenu(wxContextMenuEvent& e)
 
     // ── Regular plot context menu ─────────────────────────────────────────────
     enum {
-        ID_PAUSE      = wxID_HIGHEST + 201,
-        ID_AUTOSCALE  = wxID_HIGHEST + 202,
-        ID_RESET      = wxID_HIGHEST + 203,
+        ID_PAUSE       = wxID_HIGHEST + 201,
+        ID_AUTOSCALE   = wxID_HIGHEST + 202,
+        ID_RESET       = wxID_HIGHEST + 203,
+        ID_SHARED_AXIS = wxID_HIGHEST + 204,
     };
 
     wxMenu menu;
     menu.Append(ID_PAUSE,     paused_ ? "Resume" : "Pause");
     menu.Append(ID_AUTOSCALE, "Auto Scale");
     menu.Enable(ID_AUTOSCALE, !auto_scale_);
+    menu.AppendSeparator();
+    menu.AppendCheckItem(ID_SHARED_AXIS, "Shared Axis");
+    menu.Check(ID_SHARED_AXIS, shared_axis_);
     menu.AppendSeparator();
     menu.Append(ID_RESET, "Reset");
 
@@ -833,6 +931,18 @@ void SpyPlot::OnContextMenu(wxContextMenuEvent& e)
     menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
         auto_scale_ = true;
     }, ID_AUTOSCALE);
+
+    menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+        shared_axis_ = !shared_axis_;
+        if (!shared_axis_) {
+            // Seed per-trace ranges from current global range as a sensible start
+            per_trace_lo_.assign(traces_.size(), y_lo_);
+            per_trace_hi_.assign(traces_.size(), y_hi_);
+            selected_trace_idx_ = std::min(selected_trace_idx_,
+                                           traces_.empty() ? 0UL : traces_.size() - 1);
+        }
+        Refresh();
+    }, ID_SHARED_AXIS);
 
     menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
         if (paused_) {
@@ -859,12 +969,14 @@ void SpyPlot::OnMouseWheel(wxMouseEvent& e)
     const double factor = (e.GetWheelRotation() > 0) ? (1.0 / 1.15) : 1.15;
 
     if (e.GetModifiers() & wxMOD_SHIFT) {
-        // Shift+scroll — scale Y axis around its midpoint, disable autoscale
-        auto_scale_ = false;
-        double mid   = (y_hi_ + y_lo_) / 2.0;
-        double half  = (y_hi_ - y_lo_) / 2.0 * factor;
-        y_lo_ = mid - half;
-        y_hi_ = mid + half;
+        // Shift+scroll — scale Y axis around midpoint (shared axis only; no-op in normalised mode)
+        if (shared_axis_) {
+            auto_scale_ = false;
+            double mid  = (y_hi_ + y_lo_) / 2.0;
+            double half = (y_hi_ - y_lo_) / 2.0 * factor;
+            y_lo_ = mid - half;
+            y_hi_ = mid + half;
+        }
     } else {
         // Scroll — scale X time window symmetrically around centre
         time_window_s_ = std::max(0.1, time_window_s_ * factor);

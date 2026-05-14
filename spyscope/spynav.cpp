@@ -215,12 +215,15 @@ void SpyNav::OnSelChanged(wxTreeEvent& e)
 
 void SpyNav::OnBeginDrag(wxTreeEvent& e)
 {
+    e.Skip();
+
     wxTreeItemId dragged = e.GetItem();
     if (!dragged.IsOk()) return;
 
     // Gather all currently selected leaf keys
     wxArrayTreeItemIds selections;
     tree_->GetSelections(selections);
+    tree_->UnselectAll();
 
     // Check whether the dragged item is part of the selection
     bool in_selection = false;

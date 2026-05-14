@@ -12,14 +12,18 @@ using namespace spycat;
 
 wxPanel *App::CreateTopbar()
 {
-    wxPanel *topbar = new wxPanel(frame_, wxID_ANY, {0, 0}, {-1, 20}, wxBORDER_NONE, wxEmptyString);
+    wxPanel *topbar = new wxPanel(frame_, wxID_ANY, {0, 0}, {-1, 42}, wxBORDER_NONE, wxEmptyString);
     topbar->SetBackgroundColour(GetTheme().GetSecondaryBackgroundColor());
     wxStaticBitmap *logo = new wxStaticBitmap(topbar, wxID_ANY, GetSpyCatLogoBitmap(), {0, 0}, {32, 32});
+    
+    wxStaticText *title = new wxStaticText(topbar, wxID_ANY, "Spyscope");
+    title->SetFont(GetTheme().GetFont());
+    title->SetForegroundColour(GetTheme().GetPrimaryTextColor());
+    
     wxSizer *sizer = new wxBoxSizer(wxHORIZONTAL);
     sizer->Add(logo, 0, wxALIGN_CENTER_VERTICAL);
+    sizer->Add(title, 0, wxALIGN_CENTER_VERTICAL);
     topbar->SetSizer(sizer);
-    sizer->Fit(topbar);
-    sizer->SetSizeHints(topbar);
     return topbar;
 }
 
@@ -73,7 +77,7 @@ bool App::OnInit()
 
     // Master data poll timer — all registered DataObservers are notified each tick
     data_timer_.Bind(wxEVT_TIMER, &App::OnDataTimer, this);
-    data_timer_.Start(8);    // ~120 Hz requested — compensates for macOS timer coalescing
+    data_timer_.Start(17);
 
     return true;
 }

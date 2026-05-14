@@ -76,6 +76,8 @@ public:
 
     void AddKey(const std::string& key);
     void RemoveKey(const std::string& key);
+    void MoveKeyToRow(const std::string& key, int target_row);
+    int  RowFromClientY(int y) const;
     void UpdateEntry(const std::string& key,
                      const std::string& type,
                      const std::string& value);

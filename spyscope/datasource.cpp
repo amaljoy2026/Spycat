@@ -11,7 +11,7 @@ DataSource::DataSource(const std::string& shmkey)
     , timer_(this)
 {
     Bind(wxEVT_TIMER, &DataSource::OnTimer, this);
-    timer_.Start(17);   // ~60 Hz
+    timer_.Start(8);
 }
 
 void DataSource::OnTimer(wxTimerEvent&)

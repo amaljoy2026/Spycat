@@ -19,10 +19,16 @@ class WatchDropTarget : public wxTextDropTarget
 public:
     WatchDropTarget(SpyWatch* watch) : watch_(watch) {}
 
-    bool OnDropText(wxCoord, wxCoord, const wxString& text) override
+    bool OnDropText(wxCoord /*x*/, wxCoord y, const wxString& text) override
     {
-        for (const auto& key : wxSplit(text, '\n'))
-            if (!key.IsEmpty()) watch_->AddKey(key.ToStdString());
+        int target_row = watch_->RowFromClientY(y);
+        for (const auto& key : wxSplit(text, '\n')) {
+            if (key.IsEmpty()) continue;
+            std::string k = key.ToStdString();
+            // Key already in this watch → reorder; otherwise add at end
+            watch_->MoveKeyToRow(k, target_row);   // no-op if key not present; falls through to Add
+            watch_->AddKey(k);                      // no-op if key already present
+        }
         return true;
     }
 
@@ -228,6 +234,37 @@ void SpyWatch::Clear()
     RebuildRows();
 }
 
+int SpyWatch::RowFromClientY(int y) const
+{
+    // y is in SpyWatch (scrolled window) client coords.
+    // Convert to unscrolled inner_ coords: scroll rate is ROW_H px per unit.
+    int scroll_units = 0;
+    GetViewStart(nullptr, &scroll_units);
+    int y_inner = y + scroll_units * ROW_H - HEADER_H;
+    if (y_inner < 0) return 0;
+    int row = y_inner / ROW_H;
+    return std::min(row, static_cast<int>(entries_.size()));
+}
+
+void SpyWatch::MoveKeyToRow(const std::string& key, int target_row)
+{
+    auto it = std::find_if(entries_.begin(), entries_.end(),
+                           [&](const WatchEntry& e){ return e.key == key; });
+    if (it == entries_.end()) return;   // key not in this watch — caller handles add
+    int src_row = static_cast<int>(std::distance(entries_.begin(), it));
+    target_row  = std::max(0, std::min(target_row, static_cast<int>(entries_.size()) - 1));
+
+    if (src_row == target_row) return;  // already in place
+
+    WatchEntry moved = *it;
+    entries_.erase(it);
+    // After removal, indices above src_row shift down by one
+    if (target_row > src_row) --target_row;
+    entries_.insert(entries_.begin() + target_row, std::move(moved));
+    RebuildRows();
+}
+
+
 // ── Layout ────────────────────────────────────────────────────────────────────
 
 void SpyWatch::RebuildRows()
@@ -289,6 +326,35 @@ SpyWatch::RowWidgets SpyWatch::BuildDataRow(wxGridBagSizer* sizer,
     RowWidgets rw;
     wxColour bg = (row % 2 == 0) ? app_.GetTheme().GetAltBackgroundColor() : app_.GetTheme().GetPrimaryBackgroundColor();
 
+    // Right-click any cell → Delete menu; left-down on key cell → drag to plot/watch
+    std::string row_key = entry.key;
+
+    auto bind_drag = [this, row_key](wxWindow* w) {
+        // NOTE: do NOT capture w in the inner lambda — DoDragDrop can trigger
+        // RebuildRows (via MoveKeyToRow) which calls DestroyChildren, making w
+        // a dangling pointer before the lambda returns. Use 'this' (SpyWatch)
+        // as the drop source window and release capture only on still-live objects.
+        w->Bind(wxEVT_LEFT_DOWN, [this, row_key](wxMouseEvent&) {
+            wxTextDataObject data(wxString::FromUTF8(row_key));
+            wxDropSource source(data, this);
+            source.DoDragDrop(wxDrag_CopyOnly);
+            if (inner_ && inner_->HasCapture()) inner_->ReleaseMouse();
+            if (HasCapture())                   ReleaseMouse();
+        });
+    };
+
+    auto bind_ctx = [this, row_key](wxWindow* w) {
+        w->Bind(wxEVT_CONTEXT_MENU, [this, row_key](wxContextMenuEvent&) {
+            const int ID_DELETE = wxID_HIGHEST + 401;
+            wxMenu menu;
+            menu.Append(ID_DELETE, "Delete");
+            menu.Bind(wxEVT_MENU, [this, row_key](wxCommandEvent&) {
+                RemoveKey(row_key);
+            }, ID_DELETE);
+            PopupMenu(&menu);
+        });
+    };
+
     // ── Key ───────────────────────────────────────────────────────────────
     {
         wxPanel* cell = new wxPanel(inner_, wxID_ANY,
@@ -307,6 +373,8 @@ SpyWatch::RowWidgets SpyWatch::BuildDataRow(wxGridBagSizer* sizer,
         s->Add(rw.key_label, 1, wxALIGN_CENTER_VERTICAL);
         cell->SetSizer(s);
         sizer->Add(cell, wxGBPosition(row, COL_KEY), wxGBSpan(1,1), wxEXPAND);
+        bind_ctx(cell);  bind_ctx(rw.key_label);
+        bind_drag(cell); bind_drag(rw.key_label);
     }
 
     // ── Type ──────────────────────────────────────────────────────────────
@@ -325,6 +393,7 @@ SpyWatch::RowWidgets SpyWatch::BuildDataRow(wxGridBagSizer* sizer,
         s->Add(rw.type_label, 1, wxALIGN_CENTER_VERTICAL);
         cell->SetSizer(s);
         sizer->Add(cell, wxGBPosition(row, COL_TYPE), wxGBSpan(1,1), wxEXPAND);
+        bind_ctx(cell); bind_ctx(rw.type_label);
     }
 
     // ── Value ─────────────────────────────────────────────────────────────
@@ -346,6 +415,7 @@ SpyWatch::RowWidgets SpyWatch::BuildDataRow(wxGridBagSizer* sizer,
         s->Add(rw.value_label, 1, wxALIGN_CENTER_VERTICAL);
         cell->SetSizer(s);
         sizer->Add(cell, wxGBPosition(row, COL_VALUE), wxGBSpan(1,1), wxEXPAND);
+        bind_ctx(cell); bind_ctx(rw.value_label);
     }
 
     // ── Override (ToggleBox + text field) ─────────────────────────────────
@@ -383,6 +453,7 @@ SpyWatch::RowWidgets SpyWatch::BuildDataRow(wxGridBagSizer* sizer,
         s->AddSpacer(6);
         cell->SetSizer(s);
         sizer->Add(cell, wxGBPosition(row, COL_OVR), wxGBSpan(1,1), wxEXPAND);
+        bind_ctx(cell);
 
         rw.ovr_field->Bind(wxEVT_TEXT_ENTER, [this, idx](wxCommandEvent&) {
             OnOverrideText(idx);
@@ -431,6 +502,31 @@ void SpyWatch::BuildPortraitRows(wxSizer* flex)
         const wxColour hdr_bg = app_.GetTheme().GetHighlightColor();
         const wxColour hdr_fg = app_.GetTheme().GetHighlightTextColor();
 
+        // Right-click → Delete menu; left-down on key cell → drag to plot/watch
+        std::string row_key = entry.key;
+
+        auto bind_drag = [this, row_key](wxWindow* w) {
+            w->Bind(wxEVT_LEFT_DOWN, [this, row_key](wxMouseEvent&) {
+                wxTextDataObject data(wxString::FromUTF8(row_key));
+                wxDropSource source(data, this);
+                source.DoDragDrop(wxDrag_CopyOnly);
+                if (inner_ && inner_->HasCapture()) inner_->ReleaseMouse();
+                if (HasCapture())                   ReleaseMouse();
+            });
+        };
+
+        auto bind_ctx = [this, row_key](wxWindow* w) {
+            w->Bind(wxEVT_CONTEXT_MENU, [this, row_key](wxContextMenuEvent&) {
+                const int ID_DELETE = wxID_HIGHEST + 401;
+                wxMenu menu;
+                menu.Append(ID_DELETE, "Delete");
+                menu.Bind(wxEVT_MENU, [this, row_key](wxCommandEvent&) {
+                    RemoveKey(row_key);
+                }, ID_DELETE);
+                PopupMenu(&menu);
+            });
+        };
+
         // ── Key row — header style ────────────────────────────────────────
         flex->Add(make_label("Key", hdr_bg, true, HEADER_H), 0, wxEXPAND);
         {
@@ -448,6 +544,8 @@ void SpyWatch::BuildPortraitRows(wxSizer* flex)
             s->Add(rw.key_label, 1, wxALIGN_CENTER_VERTICAL);
             cell->SetSizer(s);
             flex->Add(cell, 0, wxEXPAND);
+            bind_ctx(cell);  bind_ctx(rw.key_label);
+            bind_drag(cell); bind_drag(rw.key_label);
         }
 
         // ── Type row ─────────────────────────────────────────────────────

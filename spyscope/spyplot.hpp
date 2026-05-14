@@ -55,10 +55,11 @@ public:
 
 private:
     // Coordinate transforms
-    double ClientX(double time_s)  const;   // plot time  → pixel x
-    double ClientY(double value)   const;   // plot value → pixel y
-    double PlotTime(int px)        const;   // pixel x    → plot time
-    double PlotValue(int py)       const;   // pixel y    → plot value
+    double ClientX(double time_s)                    const;   // plot time  → pixel x
+    double ClientY(double value)                     const;   // plot value → pixel y (shared axis)
+    double ClientY(size_t trace_idx, double value)   const;   // plot value → pixel y (per-trace)
+    double PlotTime(int px)                          const;   // pixel x    → plot time
+    double PlotValue(int py)                         const;   // pixel y    → plot value
 
     // Draw helpers
     void DrawBackground(wxGraphicsContext* gc);
@@ -154,6 +155,12 @@ private:
     // Bounding rects of per-trace key labels painted in DrawAxesLabels.
     // Populated each paint; used by OnContextMenu for hit-testing.
     std::vector<wxRect> trace_label_rects_;
+
+    // Shared axis / normalised mode
+    bool                shared_axis_        = true;
+    size_t              selected_trace_idx_ = 0;
+    std::vector<double> per_trace_lo_;
+    std::vector<double> per_trace_hi_;
 
     bool     paused_         = false;
     bool     dragging_       = false;
