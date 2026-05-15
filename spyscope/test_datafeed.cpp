@@ -29,13 +29,13 @@ int main()
 
         double y = sin(2 * M_PI * t);
         double z = sin(2 * M_PI * 2.0 * t);
-        m.set("data",    y);
-        m.set("rpm",     z);
-        m.set("Body.vx", y - z);
-        m.set("Body.vy", y + z);
-        m.set("Label", "hello world");
-        m.set("errcnt", 10);
-        m.set("isValid", true);
+        double w = sin(sin(2 * M_PI * 3.0 * t));
+        m.set("y",    y);
+        m.set("z",     z);
+        m.set("Functions.y_sub_z", y - z);
+        m.set("Functions.y_add_z", y + z);
+        m.set("text", "hello world");
+        m.set("raw", (void*)&y, sizeof(y));
         // Every 1 second write the average inter-write interval (ms)
         if (Duration(now - last_report).count() >= 1.0) {
             double avg_ms = (interval_count > 0)
