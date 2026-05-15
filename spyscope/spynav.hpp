@@ -60,6 +60,9 @@ public:
     void Poll();
     void OnDataPoll() override;
 
+    // Reset to initial state — clears all keys, caches, and search
+    void Reset();
+
     // Currently selected full key — empty if a namespace node is selected
     std::string GetSelectedKey() const { return selected_key_; }
 

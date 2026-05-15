@@ -54,6 +54,9 @@ wxPanel *App::CreateTopbar()
         DataSource* old = source_;
         source_ = new DataSource(segment_name_);
         CallAfter([old]() { delete old; });
+
+        // Reset the navigator — clears all keys from the old segment
+        if (nav_) nav_->Reset();
     });
 
     wxSizer *sizer = new wxBoxSizer(wxHORIZONTAL);
@@ -110,7 +113,8 @@ bool App::OnInit()
         .MinSize({-1, 220})
         .Bottom()
     );
-    dock.AddPane(new SpyNav(dockpanel_, *this), wxAuiPaneInfo()
+    nav_ = new SpyNav(dockpanel_, *this);
+    dock.AddPane(nav_, wxAuiPaneInfo()
         .Name("nav")
         .Caption("Navigator")
         .CloseButton(false)

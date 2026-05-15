@@ -89,6 +89,7 @@ private:
     Theme         theme_;
     DockPanel*    dockpanel_ = nullptr;
     SpyWatch*     watch_     = nullptr;
+    SpyNav*       nav_       = nullptr;
     wxPanel*      topbar_    = nullptr;
     wxFrame*      frame_     = nullptr;
     wxSizer*      sizer_     = nullptr;

@@ -63,7 +63,6 @@ SpyNav::SpyNav(wxWindow* parent, App& app, wxWindowID id)
     tree_->SetBackgroundColour(app_.GetTheme().GetPrimaryBackgroundColor());
     tree_->SetForegroundColour(app_.GetTheme().GetPrimaryTextColor());
     tree_->SetFont(app_.GetTheme().GetFont());
-
     // ── Image list ────────────────────────────────────────────────────────
     // One 16×16 icon per NavIcon slot — order must match the enum in spynav.hpp
     struct IconEntry { const uint8_t* data; size_t size; };
@@ -130,6 +129,18 @@ SpyNav::SpyNav(wxWindow* parent, App& app, wxWindowID id)
 SpyNav::~SpyNav()
 {
     app_.UnregisterObserver(this);
+}
+
+// ── Reset ─────────────────────────────────────────────────────────────────────
+
+void SpyNav::Reset()
+{
+    known_cache_.clear();
+    node_cache_.clear();
+    tree_->DeleteAllItems();
+    root_ = tree_->AddRoot("__root__");
+    selected_key_.clear();
+    search_ctrl_->Clear();
 }
 
 // ── Poll / data timer ─────────────────────────────────────────────────────────
@@ -380,7 +391,6 @@ void SpyNav::OnItemRightClick(wxTreeEvent& e)
     menu.Bind(wxEVT_MENU, [this, keys](wxCommandEvent&) {
         app_.AddPlotPane(keys);
     }, ID_NAV_PLOT);
-
     menu.Bind(wxEVT_MENU, [this, keys](wxCommandEvent&) {
         app_.AddWatchPane(keys);
     }, ID_NAV_WATCH);
