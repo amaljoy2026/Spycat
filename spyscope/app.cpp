@@ -143,7 +143,7 @@ bool App::OnInit()
 
     // Master data poll timer — all registered DataObservers are notified each tick
     data_timer_.Bind(wxEVT_TIMER, &App::OnDataTimer, this);
-    data_timer_.Start(17);
+    data_timer_.Start(15);
 
     // Auto-restore layout from previous session (deferred so frame has settled)
     if (wxFileExists(DefaultLayoutPath()))
