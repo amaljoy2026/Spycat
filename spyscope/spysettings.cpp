@@ -40,41 +40,57 @@ SpySettings::SpySettings(wxWindow* parent, App& app)
     name_row->Add(name_border, 1, wxALIGN_CENTER_VERTICAL | wxEXPAND);
 
     // ── Clear App Data ────────────────────────────────────────────────────────
-    // HighlightColor border panel — padding gives a visible margin all round
-    auto* clear_border = new wxPanel(this, wxID_ANY);
-    clear_border->SetBackgroundColour(app_.GetTheme().GetHighlightColor());
-
-    auto* clear_btn = new wxButton(clear_border, wxID_ANY, "Clear App Data",
-                                   wxDefaultPosition, wxDefaultSize, wxBORDER_NONE);
-    clear_btn->SetFont(app_.GetTheme().GetFont());
-    clear_btn->SetForegroundColour(app_.GetTheme().GetPrimaryTextColor());
-    clear_btn->SetBackgroundColour(app_.GetTheme().GetSecondaryBackgroundColor());
-
-
-    auto* clear_border_sizer = new wxBoxSizer(wxVERTICAL);
-    clear_border_sizer->Add(clear_btn, 1, wxEXPAND | wxALL, 1);   // 1 px gap = the border itself
-    clear_border->SetSizer(clear_border_sizer);
-
-    // Hover: fill with highlight colour, revert on leave
+    // 1 px HighlightColor border around a custom panel button.
+    // wxButton ignores SetForegroundColour on macOS, so we use wxPanel +
+    // wxStaticText for full colour control on hover.
     const wxColour hlCol  = app_.GetTheme().GetHighlightColor();
     const wxColour hlText = app_.GetTheme().GetHighlightTextColor();
     const wxColour bgCol  = app_.GetTheme().GetSecondaryBackgroundColor();
     const wxColour fgCol  = app_.GetTheme().GetPrimaryTextColor();
 
-    clear_btn->Bind(wxEVT_ENTER_WINDOW, [clear_btn, hlCol, hlText](wxMouseEvent& e) {
-        clear_btn->SetBackgroundColour(hlCol);
-        clear_btn->SetForegroundColour(hlText);
-        clear_btn->Refresh();
-        e.Skip();
-    });
-    clear_btn->Bind(wxEVT_LEAVE_WINDOW, [clear_btn, bgCol, fgCol](wxMouseEvent& e) {
-        clear_btn->SetBackgroundColour(bgCol);
-        clear_btn->SetForegroundColour(fgCol);
-        clear_btn->Refresh();
-        e.Skip();
-    });
+    auto* clear_border = new wxPanel(this, wxID_ANY);
+    clear_border->SetBackgroundColour(hlCol);
 
-    clear_btn->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+    auto* clear_btn = new wxPanel(clear_border, wxID_ANY);
+    clear_btn->SetBackgroundColour(bgCol);
+    clear_btn->SetCursor(wxCursor(wxCURSOR_HAND));
+
+    auto* clear_lbl = new wxStaticText(clear_btn, wxID_ANY, "Clear App Data",
+                                       wxDefaultPosition, wxDefaultSize,
+                                       wxALIGN_CENTRE_HORIZONTAL);
+    clear_lbl->SetFont(app_.GetTheme().GetFont());
+    clear_lbl->SetForegroundColour(fgCol);
+    clear_lbl->SetCursor(wxCursor(wxCURSOR_HAND));
+
+    auto* lbl_sizer = new wxBoxSizer(wxHORIZONTAL);
+    lbl_sizer->AddStretchSpacer(1);
+    lbl_sizer->Add(clear_lbl, 0, wxALIGN_CENTER_VERTICAL | wxTOP | wxBOTTOM, 4);
+    lbl_sizer->AddStretchSpacer(1);
+    clear_btn->SetSizer(lbl_sizer);
+
+    auto* clear_border_sizer = new wxBoxSizer(wxVERTICAL);
+    clear_border_sizer->Add(clear_btn, 1, wxEXPAND | wxALL, 1);
+    clear_border->SetSizerAndFit(clear_border_sizer);
+
+    // Hover: propagate from both the panel and the label inside it
+    auto on_enter = [clear_btn, clear_lbl, hlCol, hlText](wxMouseEvent& e) {
+        clear_btn->SetBackgroundColour(hlCol);
+        clear_lbl->SetForegroundColour(hlText);
+        clear_btn->Refresh();
+        e.Skip();
+    };
+    auto on_leave = [clear_btn, clear_lbl, bgCol, fgCol](wxMouseEvent& e) {
+        clear_btn->SetBackgroundColour(bgCol);
+        clear_lbl->SetForegroundColour(fgCol);
+        clear_btn->Refresh();
+        e.Skip();
+    };
+    clear_btn->Bind(wxEVT_ENTER_WINDOW, on_enter);
+    clear_btn->Bind(wxEVT_LEAVE_WINDOW, on_leave);
+    clear_lbl->Bind(wxEVT_ENTER_WINDOW, on_enter);
+    clear_lbl->Bind(wxEVT_LEAVE_WINDOW, on_leave);
+
+    auto on_click = [this](wxMouseEvent&) {
         wxString seg = name_ctrl_->GetValue().Trim();
         if (seg.IsEmpty()) return;
 
@@ -89,7 +105,9 @@ SpySettings::SpySettings(wxWindow* parent, App& app)
             Spymap::destroy(seg.ToStdString());
             name_ctrl_->SetValue("_test_");
         }
-    });
+    };
+    clear_btn->Bind(wxEVT_LEFT_UP, on_click);
+    clear_lbl->Bind(wxEVT_LEFT_UP, on_click);
 
     // ── Separator ─────────────────────────────────────────────────────────────
     auto* sep = new wxStaticLine(this, wxID_ANY);
@@ -114,7 +132,7 @@ SpySettings::SpySettings(wxWindow* parent, App& app)
     sizer->AddSpacer(16);
     sizer->Add(name_row,    0, wxEXPAND | wxLEFT | wxRIGHT, 20);
     sizer->AddSpacer(12);
-    sizer->Add(clear_border, 0, wxLEFT, 20);
+    sizer->Add(clear_border, 0, wxALIGN_RIGHT | wxRIGHT, 20);
     sizer->AddSpacer(16);
     sizer->Add(sep,         0, wxEXPAND | wxLEFT | wxRIGHT, 20);
     sizer->AddSpacer(12);

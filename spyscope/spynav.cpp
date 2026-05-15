@@ -1,7 +1,7 @@
 // SpyNav.cpp
 #include "spynav.hpp"
-#include "namespace_icon.h"
 #include "search_icon.h"
+#include "type_icons.h"
 
 #include <wx/sizer.h>
 #include <wx/imaglist.h>
@@ -18,6 +18,21 @@ enum
     ID_NAV_PLOT  = wxID_HIGHEST + 101,
     ID_NAV_WATCH = wxID_HIGHEST + 102,
 };
+
+// ── Type tag icon ─────────────────────────────────────────────────────────────
+
+static int TypeTagIcon(TypeTag tag)
+{
+    switch (tag) {
+        case TypeTag::Double: return NAV_ICON_DOUBLE;
+        case TypeTag::Float:  return NAV_ICON_FLOAT;
+        case TypeTag::Int64:  return NAV_ICON_INT64;
+        case TypeTag::Int32:  return NAV_ICON_INT32;
+        case TypeTag::Bool:   return NAV_ICON_BOOL;
+        case TypeTag::String: return NAV_ICON_STRING;
+        default:              return NAV_ICON_RAW;
+    }
+}
 
 wxBEGIN_EVENT_TABLE(SpyNav, wxPanel)
     EVT_TREE_SEL_CHANGED    (wxID_ANY, SpyNav::OnSelChanged)
@@ -50,17 +65,27 @@ SpyNav::SpyNav(wxWindow* parent, App& app, wxWindowID id)
     tree_->SetFont(app_.GetTheme().GetFont());
 
     // ── Image list ────────────────────────────────────────────────────────
-    image_list_ = new wxImageList(16, 16, true, NAV_ICON_COUNT);
+    // One 16×16 icon per NavIcon slot — order must match the enum in spynav.hpp
+    struct IconEntry { const uint8_t* data; size_t size; };
+    static const IconEntry kIcons[NAV_ICON_COUNT] = {
+        { kTypeIcon_NamespacePng, kTypeIcon_NamespacePngSize },
+        { kTypeIcon_DoublePng,    kTypeIcon_DoublePngSize    },
+        { kTypeIcon_FloatPng,     kTypeIcon_FloatPngSize     },
+        { kTypeIcon_Int32Png,     kTypeIcon_Int32PngSize     },
+        { kTypeIcon_Int64Png,     kTypeIcon_Int64PngSize     },
+        { kTypeIcon_BoolPng,      kTypeIcon_BoolPngSize      },
+        { kTypeIcon_StringPng,    kTypeIcon_StringPngSize    },
+        { kTypeIcon_RawPng,       kTypeIcon_RawPngSize       },
+    };
 
-    // NAV_ICON_NAMESPACE — load embedded PNG, scale to 16×16
-    {
-        wxMemoryInputStream stream(kNamespaceIconPng, kNamespaceIconPngSize);
+    image_list_ = new wxImageList(22, 22, true, NAV_ICON_COUNT);
+    for (const auto& ic : kIcons) {
+        wxMemoryInputStream stream(ic.data, ic.size);
         wxImage img(stream, wxBITMAP_TYPE_PNG);
-        img.Rescale(16, 16, wxIMAGE_QUALITY_HIGH);
+        img.Rescale(22, 22, wxIMAGE_QUALITY_NEAREST);
         image_list_->Add(wxBitmap(img));
     }
-
-    tree_->AssignImageList(image_list_);   // tree takes ownership
+    tree_->AssignImageList(image_list_);  // tree takes ownership
     image_list_ = nullptr;
 
     // Hidden root
@@ -157,8 +182,7 @@ wxTreeItemId SpyNav::GetOrCreateNode(const wxString& path)
     }
 
     wxTreeItemId node = tree_->AppendItem(parent, label,
-                                          NAV_ICON_NAMESPACE,
-                                          NAV_ICON_NAMESPACE);
+                                          NAV_ICON_NAMESPACE, NAV_ICON_NAMESPACE);
     node_cache_[path.ToStdString()] = node;
     return node;
 }
@@ -182,7 +206,14 @@ void SpyNav::InsertKey(const std::string& key)
         parent           = GetOrCreateNode(ns_path);
     }
 
-    wxTreeItemId leaf = tree_->AppendItem(parent, leaf_name, -1, -1);
+    int icon = -1;
+    DataSource* source = app_.GetDataSource();
+    if (source) {
+        auto entry = source->Get(key);
+        if (entry) icon = TypeTagIcon(entry->type_tag);
+    }
+
+    wxTreeItemId leaf = tree_->AppendItem(parent, leaf_name, icon, icon);
 
     // Store the full dotted key in item data for drag and selection
     tree_->SetItemData(leaf, new TreeData(wx_key));

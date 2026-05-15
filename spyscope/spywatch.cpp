@@ -235,6 +235,16 @@ std::vector<WatchEntry> SpyWatch::GetOverrides() const
     return result;
 }
 
+void SpyWatch::ReleaseOverrides()
+{
+    DataSource* source = app_.GetDataSource();
+    if (!source) return;
+    for (const auto& e : entries_) {
+        if (e.override_active)
+            source->SetOverride(e.key, e.override_value, /*priority=*/-1);
+    }
+}
+
 void SpyWatch::Clear()
 {
     entries_.clear();
@@ -830,11 +840,13 @@ void SpyWatch::SerializeTo(boost::property_tree::ptree& node) const
 {
     namespace pt = boost::property_tree;
 
-    // Watched keys — ordered
+    // Watched keys — stored as objects so override state travels with the key
     pt::ptree keys_node;
     for (const auto& e : entries_) {
         pt::ptree item;
-        item.put("", e.key);
+        item.put("key",            e.key);
+        item.put("override_active", e.override_active);
+        item.put("override_value",  e.override_value);
         keys_node.push_back({"", item});
     }
     node.add_child("keys", keys_node);
@@ -856,17 +868,41 @@ void SpyWatch::DeserializeFrom(const boost::property_tree::ptree& node)
     Clear();   // wipes entries_ and rebuilds (empty) rows
 
     pt::ptree empty;
-    for (const auto& item : node.get_child("keys", empty))
-        AddKey(item.second.get_value<std::string>());
+    for (const auto& item : node.get_child("keys", empty)) {
+        // Support both the new object format and the legacy flat-string format
+        std::string key = item.second.get<std::string>("key", "");
+        if (key.empty())
+            key = item.second.get_value<std::string>();   // legacy
+
+        AddKey(key);   // appends entry with default override state
+
+        // Restore override state directly into the entry just added
+        if (!entries_.empty() && entries_.back().key == key) {
+            entries_.back().override_active =
+                item.second.get<bool>       ("override_active", false);
+            entries_.back().override_value  =
+                item.second.get<std::string>("override_value",  "");
+        }
+    }
 
     int i = 0;
     for (const auto& item : node.get_child("col_weights", empty)) {
         if (i < 4) col_weights_[i++] = item.second.get_value<float>();
     }
 
-    // RebuildRows is called by AddKey; a final explicit rebuild picks up the
-    // restored col_weights_ now that all keys are loaded.
+    // Final rebuild picks up restored col_weights_ and override state
+    // (BuildDataRow reads entry.override_active / override_value directly).
     RebuildRows();
+
+    // Re-assert any active overrides into shared memory so the producer
+    // sees them immediately on startup, not only after the user interacts.
+    DataSource* source = app_.GetDataSource();
+    if (source) {
+        for (const auto& e : entries_) {
+            if (e.override_active && !e.override_value.empty())
+                source->SetOverride(e.key, e.override_value, /*priority=*/1);
+        }
+    }
 }
 
 // ── Resize ────────────────────────────────────────────────────────────────────

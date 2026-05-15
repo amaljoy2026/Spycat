@@ -25,10 +25,17 @@ namespace spycat
 // Forward-declare DataSource — full definition included in SpyNav.cpp
 class DataSource;
 
-// Icon indices — assign assets here when ready
+// Icon indices into the wxImageList attached to the tree
 enum NavIcon
 {
     NAV_ICON_NAMESPACE = 0,
+    NAV_ICON_DOUBLE,
+    NAV_ICON_FLOAT,
+    NAV_ICON_INT32,
+    NAV_ICON_INT64,
+    NAV_ICON_BOOL,
+    NAV_ICON_STRING,
+    NAV_ICON_RAW,
     NAV_ICON_COUNT
 };
 
@@ -93,7 +100,7 @@ private:
 
     std::string selected_key_;
 
-    wxImageList* image_list_ = nullptr;
+    wxImageList*  image_list_ = nullptr;
 
     wxFont        font_mono_;
     wxTextCtrl*   search_ctrl_ = nullptr;

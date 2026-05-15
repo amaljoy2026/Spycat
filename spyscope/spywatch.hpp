@@ -84,6 +84,7 @@ public:
                      const std::string& type,
                      const std::string& value);
     std::vector<WatchEntry> GetOverrides() const;
+    void ReleaseOverrides();
     void Clear();
 
     // Layout persistence

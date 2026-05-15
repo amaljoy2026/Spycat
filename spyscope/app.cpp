@@ -130,6 +130,13 @@ bool App::OnInit()
 
     // Auto-save on close
     frame_->Bind(wxEVT_CLOSE_WINDOW, [this](wxCloseEvent& e) {
+        // Release all overrides before saving so the producer regains control
+        watch_->ReleaseOverrides();
+        for (auto& rec : panes_)
+            if (rec.type == "watch")
+                if (auto* w = dynamic_cast<SpyWatch*>(rec.widget))
+                    w->ReleaseOverrides();
+
         SaveLayout();
         e.Skip();   // let wxWidgets destroy the frame
     });
